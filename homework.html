@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>作业录入工具</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #000000;
@@ -69,8 +72,9 @@
         .grid {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
-            gap: 15px;
+            gap: 20px 15px; /* 增加上下间距 */
             justify-items: center;
+            padding: 0 10px; /* 增加左右内边距，避免太靠边 */
         }
         .student-btn {
             width: 100%;
@@ -129,13 +133,11 @@
     </div>
 
     <div style="display: flex; gap: 10px; margin-bottom: 20px; width: 100%; justify-content: center; flex-wrap: wrap;" id="bonus-container">
-        <button class="bonus-btn" onclick="toggleBonus(-30, this)">-30分</button>
-        <button class="bonus-btn" onclick="toggleBonus(-20, this)">-20分</button>
-        <button class="bonus-btn" onclick="toggleBonus(-10, this)">-10分</button>
-        <button class="bonus-btn" onclick="toggleBonus(0, this)">0分</button>
         <button class="bonus-btn" onclick="toggleBonus(10, this)">+10分</button>
         <button class="bonus-btn" onclick="toggleBonus(20, this)">+20分</button>
         <button class="bonus-btn" onclick="toggleBonus(30, this)">+30分</button>
+        <button class="bonus-btn" onclick="toggleBonus(40, this)">+40分</button>
+        <button class="bonus-btn" onclick="toggleBonus(50, this)">+50分</button>
     </div>
 
     <div id="students-container">
