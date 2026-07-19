@@ -93,6 +93,7 @@
             background-color: #ffffff;
             color: #000000;
             border: 4px solid var(--class-color, #10b981);
+            touch-action: none; /* 防止滑动时触发页面滚动 */
         }
         .student-btn.selected {
             background-color: var(--class-color, #10b981);
@@ -184,9 +185,10 @@
     function parseJSON(data) {
         studentsData = [];
         if (!Array.isArray(data)) return;
-        data.forEach(item => {
+        data.forEach((item, index) => {
             let student = { ...item };
             student._selected = false; // 默认未交
+            student._globalIndex = index;
             studentsData.push(student);
         });
     }
@@ -236,17 +238,8 @@
                 
                 // 动态设置 CSS 变量颜色
                 btn.style.setProperty('--class-color', classColors[c]);
+                btn.dataset.index = student._globalIndex;
                 
-                btn.addEventListener('click', () => {
-                    student._selected = !student._selected;
-                    hasUnsavedChanges = true; // 标记有未保存的修改
-                    if (student._selected) {
-                        btn.classList.add('selected');
-                    } else {
-                        btn.classList.remove('selected');
-                    }
-                });
-
                 grid.appendChild(btn);
             });
 
@@ -320,7 +313,7 @@
         try {
             // 过滤掉不需要保存到云端的字段，比如 _selected
             const dataToSave = studentsData.map(student => {
-                const { _selected, ...rest } = student;
+                const { _selected, _globalIndex, ...rest } = student;
                 return rest;
             });
 
@@ -345,6 +338,91 @@
             alert('保存失败: ' + err.message);
         }
     }
+
+    // --- 滑动涂抹多选逻辑 ---
+    let isDragging = false;
+    let dragToggledSet = new Set();
+    let dragTargetState = true;
+
+    function handleInteract(target) {
+        if (!target || !target.classList.contains('student-btn')) return;
+        const index = target.dataset.index;
+        if (index === undefined) return;
+        
+        if (!dragToggledSet.has(index)) {
+            const student = studentsData[index];
+            if (dragToggledSet.size === 0) {
+                // 第一次触摸，决定是全选还是全不选
+                dragTargetState = !student._selected;
+            }
+            
+            student._selected = dragTargetState;
+            hasUnsavedChanges = true;
+            
+            if (student._selected) {
+                target.classList.add('selected');
+            } else {
+                target.classList.remove('selected');
+            }
+            
+            dragToggledSet.add(index);
+        }
+    }
+
+    const studentsContainer = document.getElementById('students-container');
+
+    // 触摸事件 (手机端)
+    studentsContainer.addEventListener('touchstart', (e) => {
+        const target = e.target.closest('.student-btn');
+        if (target) {
+            isDragging = true;
+            dragToggledSet.clear();
+            handleInteract(target);
+        }
+    }, { passive: false });
+
+    studentsContainer.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        const touch = e.touches[0];
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (target && target.classList.contains('student-btn')) {
+            handleInteract(target);
+            e.preventDefault(); // 阻止屏幕滚动，方便涂抹
+        }
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+        isDragging = false;
+        dragToggledSet.clear();
+    });
+
+    window.addEventListener('touchcancel', () => {
+        isDragging = false;
+        dragToggledSet.clear();
+    });
+
+    // 鼠标事件 (电脑端测试)
+    studentsContainer.addEventListener('mousedown', (e) => {
+        const target = e.target.closest('.student-btn');
+        if (target) {
+            isDragging = true;
+            dragToggledSet.clear();
+            handleInteract(target);
+        }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const target = document.elementFromPoint(e.clientX, e.clientY);
+        if (target && target.classList.contains('student-btn')) {
+            handleInteract(target);
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDragging = false;
+        dragToggledSet.clear();
+    });
 </script>
 
 </body>
