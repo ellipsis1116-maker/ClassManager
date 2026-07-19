@@ -120,8 +120,11 @@
             }
 
             fetch('/api/students')
-                .then(response => {
-                    if (!response.ok) throw new Error('无法读取云端数据');
+                .then(async response => {
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        throw new Error(`无法读取云端数据 (状态码: ${response.status}, 详情: ${errText})`);
+                    }
                     return response.json();
                 })
                 .then(data => {
