@@ -1,0 +1,6 @@
+name = "classmanager"
+pages_build_output_dir = "."
+
+[[kv_namespaces]]
+binding = "KV"
+id = "STUDENT_DB"
