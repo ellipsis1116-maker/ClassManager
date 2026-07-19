@@ -74,7 +74,7 @@
 
             <div style="margin-top: 20px; border-top: 1px solid #334155; padding-top: 16px; display: flex; gap: 10px;">
                 <button id="settings-reset-exp" class="btn" style="background: #ef4444; flex: 1;">周结算(存入总分)</button>
-                <button id="settings-reload-csv" class="btn" style="background: #eab308; flex: 1;">从云端重新加载</button>
+                <button id="settings-reload-cloud" class="btn" style="background: #eab308; flex: 1;">从云端重新加载</button>
             </div>
 
             <div class="modal-actions">
@@ -195,7 +195,7 @@
                 }
             });
 
-            document.getElementById('settings-reload-csv').addEventListener('click', () => {
+            document.getElementById('settings-reload-cloud').addEventListener('click', () => {
                 if (confirm('确定要从云端重新加载吗？未保存的更改将会丢失！')) {
                     fetch('/api/students')
                         .then(response => {
