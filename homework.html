@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>作业录入工具</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            align-items: center;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            font-size: 18px;
+            background-color: #111;
+            color: #fff;
+            outline: none;
+        }
+        input[type="text"]:focus {
+            border-color: #555;
+        }
+        .submit-btn {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            white-space: nowrap;
+        }
+        .submit-btn:hover {
+            background-color: #059669;
+        }
+        .class-section {
+            margin-bottom: 30px;
+            width: 100%;
+        }
+        .class-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #94a3b8;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            justify-items: center;
+        }
+        .student-btn {
+            width: 100%;
+            max-width: 70px;
+            aspect-ratio: 1;
+            height: auto;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            font-weight: 900;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s;
+            background-color: #ffffff;
+            color: #000000;
+            border: 4px solid var(--class-color, #10b981);
+        }
+        .student-btn.selected {
+            background-color: var(--class-color, #10b981);
+            color: #ffffff;
+        }
+        @media (max-width: 400px) {
+            .grid { gap: 10px; }
+            .student-btn { font-size: 22px; border-width: 3px; }
+            .header { flex-direction: column; align-items: stretch; }
+            .submit-btn { width: 100%; }
+        }
+        .student-btn:active {
+            transform: scale(0.95);
+        }
+        .bonus-btn {
+            background-color: #1e293b;
+            color: #3b82f6;
+            border: 2px solid #3b82f6;
+            padding: 8px 16px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: bold;
+        }
+        .bonus-btn.selected {
+            background-color: #3b82f6;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <input type="text" id="homework-name" placeholder="输入作业名称...">
+        <button class="submit-btn" id="submit-btn">保存</button>
+    </div>
+
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; width: 100%; justify-content: center; flex-wrap: wrap;" id="bonus-container">
+        <button class="bonus-btn" onclick="toggleBonus(-30, this)">-30分</button>
+        <button class="bonus-btn" onclick="toggleBonus(-20, this)">-20分</button>
+        <button class="bonus-btn" onclick="toggleBonus(-10, this)">-10分</button>
+        <button class="bonus-btn" onclick="toggleBonus(0, this)">0分</button>
+        <button class="bonus-btn" onclick="toggleBonus(10, this)">+10分</button>
+        <button class="bonus-btn" onclick="toggleBonus(20, this)">+20分</button>
+        <button class="bonus-btn" onclick="toggleBonus(30, this)">+30分</button>
+    </div>
+
+    <div id="students-container">
+        <!-- 按班级分组的学生方块将在这里渲染 -->
+    </div>
+</div>
+
+<script>
+    let studentsData = [];
+    let headers = [];
+    let hasUnsavedChanges = false; // 追踪是否有未保存的修改
+    let selectedBonus = 0; // 当前选中的加分项
+    
+    // 预设颜色调色板
+    const colorPalette = ['#f97316', '#0284c7', '#10b981', '#8b5cf6', '#ec4899', '#eab308'];
+    const classColors = {};
+    let colorIndex = 0;
+
+    // 拦截页面关闭/刷新
+    window.addEventListener('beforeunload', (e) => {
+        if (hasUnsavedChanges) {
+            e.preventDefault();
+            e.returnValue = ''; // 现代浏览器需要设置这个属性来触发默认的离开提示
+        }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+        fetch('students.csv')
+            .then(response => {
+                if (!response.ok) throw new Error('无法读取 students.csv');
+                return response.text();
+            })
+            .then(text => {
+                parseCSV(text);
+                renderGrid();
+            })
+            .catch(err => {
+                alert('错误: ' + err.message + '\n\n注意：直接双击打开 HTML 文件时，浏览器出于安全限制（CORS）不允许读取本地 CSV 文件。请务必使用 Live Server 或其他本地服务器环境打开！');
+            });
+    });
+
+    function parseCSV(text) {
+        studentsData = [];
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        if(lines.length <= 1) return;
+        
+        headers = lines[0].split(',').map(h => h.trim());
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map(c => c.trim());
+            if (cols.length < headers.length) continue;
+            let student = {};
+            headers.forEach((header, index) => { student[header] = cols[index]; });
+            student._selected = false; // 默认未交
+            studentsData.push(student);
+        }
+    }
+
+    function renderGrid() {
+        const container = document.getElementById('students-container');
+        container.innerHTML = '';
+
+        // 按班级分组
+        const classes = {};
+        studentsData.forEach((student) => {
+            const c = student.class ? student.class.toUpperCase() : '其他';
+            if (!classes[c]) classes[c] = [];
+            classes[c].push(student);
+        });
+
+        // 为每个班级分配颜色
+        Object.keys(classes).forEach(c => {
+            if (!classColors[c]) {
+                if (c === '7A') classColors[c] = '#f97316'; // 7A 尽量保持橙色
+                else if (c === '8B') classColors[c] = '#0284c7'; // 8B 尽量保持蓝色
+                else {
+                    classColors[c] = colorPalette[colorIndex % colorPalette.length];
+                    colorIndex++;
+                }
+            }
+        });
+
+        // 渲染每个班级
+        for (const c in classes) {
+            const section = document.createElement('div');
+            section.className = 'class-section';
+            
+            const title = document.createElement('div');
+            title.className = 'class-title';
+            title.innerText = c + ' 班';
+            section.appendChild(title);
+
+            const grid = document.createElement('div');
+            grid.className = 'grid';
+
+            classes[c].forEach((student) => {
+                const btn = document.createElement('div');
+                btn.className = 'student-btn';
+                // 去掉前导零，比如 "01" 变成 "1"
+                btn.innerText = parseInt(student.id, 10);
+                
+                // 动态设置 CSS 变量颜色
+                btn.style.setProperty('--class-color', classColors[c]);
+                
+                btn.addEventListener('click', () => {
+                    student._selected = !student._selected;
+                    hasUnsavedChanges = true; // 标记有未保存的修改
+                    if (student._selected) {
+                        btn.classList.add('selected');
+                    } else {
+                        btn.classList.remove('selected');
+                    }
+                });
+
+                grid.appendChild(btn);
+            });
+
+            section.appendChild(grid);
+            container.appendChild(section);
+        }
+    }
+
+    function toggleBonus(points, btnElement) {
+        if (selectedBonus === points) {
+            // 取消选中
+            selectedBonus = 0;
+            btnElement.classList.remove('selected');
+        } else {
+            // 选中新的
+            selectedBonus = points;
+            document.querySelectorAll('.bonus-btn').forEach(btn => btn.classList.remove('selected'));
+            btnElement.classList.add('selected');
+        }
+    }
+
+    document.getElementById('submit-btn').addEventListener('click', async () => {
+        if (studentsData.length === 0) {
+            alert('数据未加载！');
+            return;
+        }
+
+        const hwName = document.getElementById('homework-name').value.trim();
+        if (!hwName && selectedBonus === 0) {
+            alert('请输入作业名称或选择加分项！');
+            return;
+        }
+
+        // 处理数据
+        studentsData.forEach(student => {
+            if (student._selected) {
+                // 选中的学生（交了作业/答对题）：加分/减分
+                if (selectedBonus !== 0) {
+                    student.week_score = (parseInt(student.week_score) || 0) + selectedBonus;
+                }
+            } else {
+                // 未选中的学生（没交作业）：追加作业名
+                if (hwName) {
+                    let currentStatus = student.status || '';
+                    currentStatus = currentStatus.replace(/"/g, '');
+                    let items = currentStatus.split(/[，,]/).map(s => s.trim()).filter(s => s.length > 0);
+                    
+                    if (!items.includes(hwName)) {
+                        items.push(hwName);
+                    }
+                    student.status = items.join('，');
+                }
+            }
+        });
+
+        await saveCSV();
+        
+        // 保存后重置状态
+        studentsData.forEach(student => student._selected = false);
+        document.querySelectorAll('.student-btn').forEach(btn => btn.classList.remove('selected'));
+        selectedBonus = 0;
+        document.querySelectorAll('.bonus-btn').forEach(btn => btn.classList.remove('selected'));
+        document.getElementById('homework-name').value = '';
+    });
+
+    async function saveCSV() {
+        // 导出 CSV
+        let csvContent = headers.join(',') + '\n';
+        
+        studentsData.forEach(student => {
+            const row = headers.map(header => {
+                let val = student[header] !== undefined ? student[header] : '';
+                val = String(val).replace(/"/g, '""');
+                if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+                    val = `"${val}"`;
+                }
+                return val;
+            });
+            csvContent += row.join(',') + '\n';
+        });
+        
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        
+        try {
+            if (window.showSaveFilePicker) {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'students.csv',
+                    types: [{
+                        description: 'CSV 文件',
+                        accept: {'text/csv': ['.csv']},
+                    }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                
+                const btn = document.getElementById('submit-btn');
+                const originalText = btn.innerText;
+                btn.innerText = '✅ 成功';
+                hasUnsavedChanges = false; // 保存成功，重置标记
+                setTimeout(() => btn.innerText = originalText, 2000);
+            } else {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.setAttribute('href', url);
+                link.setAttribute('download', 'students.csv');
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                hasUnsavedChanges = false; // 保存成功，重置标记
+            }
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                alert('保存失败: ' + err.message);
+            }
+        }
+    }
+</script>
+
+</body>
+</html>

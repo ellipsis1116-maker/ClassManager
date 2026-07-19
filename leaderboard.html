@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>英雄榜 Leaderboard</title>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            max-width: 800px;
+            margin-bottom: 20px;
+        }
+        .title {
+            font-size: 32px;
+            font-weight: 900;
+            color: #eab308;
+            text-shadow: 0 0 10px rgba(234, 179, 8, 0.5);
+            letter-spacing: 2px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            background: #1e293b;
+            color: #94a3b8;
+            border: 2px solid #334155;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .btn.active {
+            background: #3b82f6;
+            color: #fff;
+            border-color: #60a5fa;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+        .board-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 10px;
+        }
+        /* 隐藏滚动条 */
+        .board-container::-webkit-scrollbar { width: 6px; }
+        .board-container::-webkit-scrollbar-track { background: #0f172a; }
+        .board-container::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+        .row {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background: #1e293b;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            box-sizing: border-box;
+            transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); /* 弹簧动画 */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            opacity: 0;
+            animation: blinds 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
+        .rank {
+            font-size: 24px;
+            font-weight: 900;
+            width: 50px;
+            color: #64748b;
+        }
+        .class-tag {
+            font-size: 12px;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-right: 15px;
+        }
+        .tag-7A { background: rgba(249, 115, 22, 0.2); color: #f97316; border: 1px solid #f97316; }
+        .tag-8B { background: rgba(2, 132, 199, 0.2); color: #0ea5e9; border: 1px solid #0ea5e9; }
+        
+        .name {
+            font-size: 20px;
+            font-weight: bold;
+            flex: 1;
+        }
+        .exp {
+            font-size: 24px;
+            font-weight: 900;
+            color: #eab308;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .sub-info {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-left: 15px;
+            display: flex;
+            gap: 10px;
+            font-weight: normal;
+        }
+
+        /* 百叶窗动画 */
+        @keyframes blinds {
+            0% {
+                opacity: 0;
+                clip-path: inset(0 0 100% 0);
+            }
+            100% {
+                opacity: 1;
+                clip-path: inset(0 0 0 0);
+            }
+        }
+        
+        /* 前三名特效 */
+        .row.rank-1 {
+            background: linear-gradient(90deg, #422006 0%, #1e293b 100%);
+            border: 1px solid #eab308;
+            box-shadow: 0 0 15px rgba(234, 179, 8, 0.3);
+            z-index: 3;
+        }
+        .row.rank-1 .rank { color: #eab308; text-shadow: 0 0 10px #eab308; }
+        
+        .row.rank-2 {
+            background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #94a3b8;
+            z-index: 2;
+        }
+        .row.rank-2 .rank { color: #cbd5e1; text-shadow: 0 0 10px #cbd5e1; }
+        
+        .row.rank-3 {
+            background: linear-gradient(90deg, #3f2110 0%, #0f172a 100%);
+            border: 1px solid #b45309;
+            z-index: 1;
+        }
+        .row.rank-3 .rank { color: #d97706; text-shadow: 0 0 10px #d97706; }
+
+        /* 分数增加时的闪烁动画 */
+        @keyframes flash {
+            0% { background-color: #10b981; transform: scale(1.02); }
+            100% { background-color: #1e293b; transform: scale(1); }
+        }
+        .flash {
+            animation: flash 1s ease-out;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="title">🏆 英雄榜</div>
+        <div class="controls" id="league-controls">
+            <button class="btn active" data-mode="ALL" onclick="setMode('ALL')">All</button>
+            <button class="btn" data-mode="Gold" onclick="setMode('Gold')">Gold League</button>
+            <button class="btn" data-mode="Silver" onclick="setMode('Silver')">Silver League</button>
+            <button class="btn" data-mode="Bronze" onclick="setMode('Bronze')">Bronze League</button>
+        </div>
+    </div>
+
+    <div class="board-container" id="board">
+        <!-- 列表项将在这里渲染 -->
+    </div>
+
+    <script>
+        let currentMode = 'ALL';
+        let studentsData = [];
+        let previousData = {}; // 用于记录上一次的分数，判断是否增加
+        const ROW_HEIGHT = 70; // 60px height + 10px gap
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.mode === mode) {
+                    btn.classList.add('active');
+                }
+            });
+            // 切换模式时清空面板，强制重新渲染以触发百叶窗动画
+            document.getElementById('board').innerHTML = '';
+            renderBoard();
+        }
+
+        async function fetchData() {
+            try {
+                const response = await fetch('students.csv?' + new Date().getTime());
+                if (!response.ok) return;
+                const text = await response.text();
+                parseCSV(text);
+                renderBoard();
+            } catch (e) {
+                console.error('读取数据失败', e);
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+            if(lines.length <= 1) return;
+            
+            const headers = lines[0].split(',').map(h => h.trim());
+            const newData = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(',').map(c => c.trim());
+                if (cols.length < headers.length) continue;
+                let student = {};
+                headers.forEach((header, index) => { student[header] = cols[index]; });
+                student.week_score = parseInt(student.week_score) || 0;
+                student.total_score = parseInt(student.total_score) || 0;
+                student.coins = parseInt(student.coins) || 0;
+                newData.push(student);
+            }
+            
+            // 计算排名和段位
+            newData.sort((a, b) => b.week_score - a.week_score);
+            
+            let currentRank = 1;
+            let currentScore = -1;
+            let sameScoreCount = 0;
+
+            newData.forEach((student, index) => {
+                if (student.week_score !== currentScore) {
+                    currentRank = currentRank + sameScoreCount;
+                    currentScore = student.week_score;
+                    sameScoreCount = 1;
+                } else {
+                    sameScoreCount++;
+                }
+                
+                student.rank = currentRank;
+                
+                if (currentRank <= 3) {
+                    student.league = 'Gold';
+                } else if (currentRank <= 9) {
+                    student.league = 'Silver';
+                } else if (currentRank <= 17) {
+                    student.league = 'Bronze';
+                } else {
+                    student.league = 'None';
+                }
+            });
+
+            studentsData = newData;
+        }
+
+        function renderBoard() {
+            const board = document.getElementById('board');
+            
+            // 过滤数据
+            let displayData = studentsData;
+            if (currentMode !== 'ALL') {
+                displayData = studentsData.filter(s => s.league === currentMode);
+            }
+
+            // 渲染或更新 DOM
+            displayData.forEach((student, index) => {
+                const uid = student.class + '-' + student.id;
+                let row = document.getElementById('row-' + uid);
+                
+                const isNew = !row;
+                if (isNew) {
+                    row = document.createElement('div');
+                    row.id = 'row-' + uid;
+                    row.className = 'row';
+                    row.innerHTML = `
+                        <div class="class-tag tag-${student.class}">${student.class}</div>
+                        <div class="name">${student.name}</div>
+                        <div class="exp">
+                            <span class="exp-val">${student.week_score}</span>
+                            <div class="sub-info">
+                                <span>总分: ${student.total_score}</span>
+                                <span>🪙${student.coins}</span>
+                            </div>
+                        </div>
+                    `;
+                    board.appendChild(row);
+                }
+
+                // 更新排名样式
+                row.className = 'row'; // reset
+                if (student.rank === 1) row.classList.add('rank-1');
+                else if (student.rank === 2) row.classList.add('rank-2');
+                else if (student.rank === 3) row.classList.add('rank-3');
+                
+                // 检查分数是否增加，触发闪烁
+                const expSpan = row.querySelector('.exp-val');
+                const oldExp = previousData[uid] !== undefined ? previousData[uid] : student.week_score;
+                if (student.week_score > oldExp) {
+                    row.classList.add('flash');
+                    setTimeout(() => row.classList.remove('flash'), 1000);
+                }
+                expSpan.innerText = student.week_score;
+                previousData[uid] = student.week_score;
+
+                // 绝对定位动画
+                row.style.transform = `translateY(${index * ROW_HEIGHT}px)`;
+                
+                // 设置百叶窗动画的交错延迟
+                if (isNew) {
+                    row.style.animationDelay = `${index * 0.08}s`;
+                }
+            });
+
+            // 移除不在当前模式下的元素
+            const currentUids = new Set(displayData.map(s => s.class + '-' + s.id));
+            Array.from(board.children).forEach(child => {
+                const uid = child.id.replace('row-', '');
+                if (!currentUids.has(uid)) {
+                    child.remove();
+                }
+            });
+            
+            // 设置容器高度
+            board.style.height = (displayData.length * ROW_HEIGHT) + 'px';
+        }
+
+        // 自动轮播逻辑
+        const leagues = ['Gold', 'Silver', 'Bronze'];
+        let currentLeagueIndex = 0;
+        let autoPlayInterval;
+
+        function startAutoPlay() {
+            if (autoPlayInterval) clearInterval(autoPlayInterval);
+            autoPlayInterval = setInterval(() => {
+                currentLeagueIndex = (currentLeagueIndex + 1) % leagues.length;
+                setMode(leagues[currentLeagueIndex]);
+            }, 5000); // 每5秒切换一次
+        }
+
+        // 初始加载并设置定时器
+        fetchData().then(() => {
+            // 初始设置为 Gold
+            setMode('Gold');
+            startAutoPlay();
+        });
+        
+        setInterval(fetchData, 3000); // 每3秒刷新一次数据
+
+        // 用户手动点击时，重置自动轮播计时器
+        document.getElementById('league-controls').addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                const mode = e.target.dataset.mode;
+                if (leagues.includes(mode)) {
+                    currentLeagueIndex = leagues.indexOf(mode);
+                }
+                startAutoPlay(); // 重新开始计时
+            }
+        });
+    </script>
+</body>
+</html>

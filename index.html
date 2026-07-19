@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>班级座位数据大屏</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 顶部控制台 -->
+    <div id="control-panel" style="justify-content: center; position: relative;">
+        <!-- 最左侧：设置按钮 -->
+        <div style="position: absolute; left: 20px; display: flex; align-items: center;">
+            <button id="settings-btn" class="btn" style="background: transparent; font-size: 20px; padding: 5px;" title="快捷键设置">⚙️</button>
+        </div>
+
+        <!-- 左侧：网格控制 -->
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label>行: <input type="number" id="rows-input" value="7" min="1"></label>
+            <label>列: <input type="number" id="cols-input" value="7" min="1"></label>
+            <button id="render-grid-btn" class="btn btn-blue">网格</button>
+            <button id="align-btn" class="btn" style="background:#8b5cf6;">对齐</button>
+        </div>
+        
+        <div style="width: 1px; height: 24px; background: #475569; margin: 0 20px;"></div>
+        
+        <!-- 中间：分数操作区 -->
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <button id="all-up-btn" class="btn btn-blue" style="background:#eab308;">全班 +</button>
+            <button id="score-up-btn" class="btn btn-op btn-op-plus">+</button>
+            <button id="score-down-btn" class="btn btn-op btn-op-minus">-</button>
+            <button id="all-down-btn" class="btn btn-blue" style="background:#ef4444;">全班 -</button>
+        </div>
+        
+        <div style="width: 1px; height: 24px; background: #475569; margin: 0 20px;"></div>
+        
+        <!-- 右侧：其他操作 -->
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <button id="consume-gem-btn" class="btn" style="background:#eab308; color: #000;" title="扣除选中的学生 100 余额">🪙 兑奖</button>
+            <button id="lock-btn" class="btn btn-lock">🔒 锁定</button>
+            <button id="save-btn" class="btn" style="background:#10b981;">💾 保存</button>
+        </div>
+    </div>
+
+    <!-- 自由大画布 -->
+    <div id="canvas">
+        <!-- 动态背景虚线网格 -->
+        <div id="grid-layer" class="grid-overlay"></div>
+        <!-- 学生卡片渲染层 -->
+        <div id="cards-layer"></div>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">快捷键设置</div>
+            
+            <div class="setting-item">
+                <label><input type="checkbox" id="setting-arrows" checked> 启用上下左右键位</label>
+            </div>
+            <div class="setting-item">
+                <label><input type="checkbox" id="setting-space" checked> 空格锁定/解锁</label>
+            </div>
+            
+            <div style="margin-top: 16px; margin-bottom: 8px; font-size: 12px; color: #94a3b8;">自定键位</div>
+            <div class="setting-item">
+                <span>加分</span>
+                <input type="text" id="setting-key-up" value="Q" maxlength="1">
+            </div>
+            <div class="setting-item">
+                <span>减分</span>
+                <input type="text" id="setting-key-down" value="A" maxlength="1">
+            </div>
+
+            <div style="margin-top: 20px; border-top: 1px solid #334155; padding-top: 16px; display: flex; gap: 10px;">
+                <button id="settings-reset-exp" class="btn" style="background: #ef4444; flex: 1;">周结算(存入总分)</button>
+                <button id="settings-reload-csv" class="btn" style="background: #eab308; flex: 1;">从云端重新加载</button>
+            </div>
+
+            <div class="modal-actions">
+                <button id="settings-cancel" class="btn" style="background: #475569;">取消</button>
+                <button id="settings-save" class="btn btn-blue">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let studentsData = [];
+        let selectedIndices = new Set(); 
+        let lastSelectedIndex = 0;
+        let hasUnsavedChanges = false; // 追踪是否有未保存的修改
+        
+        let activeCard = null;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        // 快捷键配置 (默认值)
+        let keyConfig = {
+            useArrows: true,
+            useSpace: true,
+            keyUp: 'q',
+            keyDown: 'a'
+        };
+
+        // 拦截页面关闭/刷新
+        window.addEventListener('beforeunload', (e) => {
+            if (hasUnsavedChanges) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            // 加载本地设置
+            const savedConfig = localStorage.getItem('classManagerKeyConfig');
+            if (savedConfig) {
+                try {
+                    keyConfig = { ...keyConfig, ...JSON.parse(savedConfig) };
+                } catch (e) {}
+            }
+
+            fetch('/api/students')
+                .then(response => {
+                    if (!response.ok) throw new Error('无法读取云端数据');
+                    return response.json();
+                })
+                .then(data => {
+                    parseJSON(data);
+                    setupGrid(); 
+                })
+                .catch(err => {
+                    alert('错误: ' + err.message + '\n请检查网络连接或云端配置！');
+                });
+
+            document.getElementById('render-grid-btn').addEventListener('click', setupGrid);
+            document.getElementById('align-btn').addEventListener('click', alignCards);
+            
+            document.getElementById('score-up-btn').addEventListener('click', () => handleSelectedScore(10));
+            document.getElementById('score-down-btn').addEventListener('click', () => handleSelectedScore(-10));
+            document.getElementById('consume-gem-btn').addEventListener('click', () => handleConsumeGem(100));
+            document.getElementById('lock-btn').addEventListener('click', toggleLock);
+            document.getElementById('all-up-btn').addEventListener('click', () => handleAllScore(10));
+            document.getElementById('all-down-btn').addEventListener('click', () => handleAllScore(-10));
+            document.getElementById('save-btn').addEventListener('click', saveToCloud);
+            
+            document.getElementById('canvas').addEventListener('mousedown', (e) => {
+                if (e.target.id === 'canvas' || e.target.id === 'grid-layer' || e.target.className === 'grid-cell') {
+                    clearSelection();
+                }
+            });
+
+            // 设置弹窗逻辑
+            const modal = document.getElementById('settings-modal');
+            document.getElementById('settings-btn').addEventListener('click', () => {
+                document.getElementById('setting-arrows').checked = keyConfig.useArrows;
+                document.getElementById('setting-space').checked = keyConfig.useSpace;
+                document.getElementById('setting-key-up').value = keyConfig.keyUp.toUpperCase();
+                document.getElementById('setting-key-down').value = keyConfig.keyDown.toUpperCase();
+                modal.classList.add('show');
+            });
+            document.getElementById('settings-cancel').addEventListener('click', () => {
+                modal.classList.remove('show');
+            });
+            document.getElementById('settings-save').addEventListener('click', () => {
+                keyConfig.useArrows = document.getElementById('setting-arrows').checked;
+                keyConfig.useSpace = document.getElementById('setting-space').checked;
+                
+                let upKey = document.getElementById('setting-key-up').value.trim().toLowerCase();
+                let downKey = document.getElementById('setting-key-down').value.trim().toLowerCase();
+                if (upKey) keyConfig.keyUp = upKey;
+                if (downKey) keyConfig.keyDown = downKey;
+
+                localStorage.setItem('classManagerKeyConfig', JSON.stringify(keyConfig));
+                modal.classList.remove('show');
+            });
+
+            document.getElementById('settings-reset-exp').addEventListener('click', () => {
+                if (confirm('确定要进行周结算吗？这会将所有学生的本周分累加到历史总分和余额中，并将本周分清零。')) {
+                    studentsData.forEach((student, index) => {
+                        student.total_score += student.week_score;
+                        student.coins += student.week_score;
+                        student.week_score = 0;
+                        
+                        const expEl = document.getElementById(`exp-text-${index}`);
+                        if (expEl) {
+                            expEl.innerText = `0`;
+                        }
+                        const gemEl = document.getElementById(`gem-text-${index}`);
+                        if (gemEl) {
+                            gemEl.innerText = `余额: ${student.coins}`;
+                        }
+                    });
+                    hasUnsavedChanges = true;
+                    modal.classList.remove('show');
+                }
+            });
+
+            document.getElementById('settings-reload-csv').addEventListener('click', () => {
+                if (confirm('确定要从云端重新加载吗？未保存的更改将会丢失！')) {
+                    fetch('/api/students')
+                        .then(response => {
+                            if (!response.ok) throw new Error('无法读取云端数据');
+                            return response.json();
+                        })
+                        .then(data => {
+                            studentsData = [];
+                            selectedIndices.clear();
+                            parseJSON(data);
+                            setupGrid();
+                            hasUnsavedChanges = false;
+                            modal.classList.remove('show');
+                        })
+                        .catch(err => {
+                            alert('错误: ' + err.message);
+                        });
+                }
+            });
+
+            // 键盘快捷键支持
+            window.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'INPUT') return;
+
+                const total = studentsData.length;
+
+                if (keyConfig.useArrows && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    if (total === 0) return;
+
+                    // 如果没有选中任何卡片，默认选中第一个
+                    if (lastSelectedIndex < 0 || lastSelectedIndex >= total) {
+                        lastSelectedIndex = 0;
+                        selectStudent(0, e.ctrlKey || e.metaKey);
+                        return;
+                    }
+
+                    const currentCard = document.getElementById(`card-${lastSelectedIndex}`);
+                    if (!currentCard) return;
+
+                    const currentRect = currentCard.getBoundingClientRect();
+                    const currentCenterX = currentRect.left + currentRect.width / 2;
+                    const currentCenterY = currentRect.top + currentRect.height / 2;
+
+                    let bestMatchIndex = -1;
+                    let minDistance = Infinity;
+
+                    for (let i = 0; i < total; i++) {
+                        if (i === lastSelectedIndex) continue;
+                        const targetCard = document.getElementById(`card-${i}`);
+                        if (!targetCard) continue;
+
+                        const targetRect = targetCard.getBoundingClientRect();
+                        const targetCenterX = targetRect.left + targetRect.width / 2;
+                        const targetCenterY = targetRect.top + targetRect.height / 2;
+
+                        const dx = targetCenterX - currentCenterX;
+                        const dy = targetCenterY - currentCenterY;
+
+                        let isCandidate = false;
+                        let distance = 0;
+
+                        // 设定一个容差角度，避免必须完全水平或垂直
+                        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                        if (e.key === 'ArrowRight') {
+                            // 右侧：角度在 -45 到 45 之间
+                            if (dx > 0 && angle > -45 && angle < 45) {
+                                isCandidate = true;
+                                distance = Math.sqrt(dx*dx + dy*dy*4); // 增加 Y 轴权重，优先找水平方向最近的
+                            }
+                        } else if (e.key === 'ArrowLeft') {
+                            // 左侧：角度在 135 到 180 或 -180 到 -135 之间
+                            if (dx < 0 && (angle > 135 || angle < -135)) {
+                                isCandidate = true;
+                                distance = Math.sqrt(dx*dx + dy*dy*4);
+                            }
+                        } else if (e.key === 'ArrowDown') {
+                            // 下方：角度在 45 到 135 之间
+                            if (dy > 0 && angle > 45 && angle < 135) {
+                                isCandidate = true;
+                                distance = Math.sqrt(dx*dx*4 + dy*dy); // 增加 X 轴权重，优先找垂直方向最近的
+                            }
+                        } else if (e.key === 'ArrowUp') {
+                            // 上方：角度在 -135 到 -45 之间
+                            if (dy < 0 && angle > -135 && angle < -45) {
+                                isCandidate = true;
+                                distance = Math.sqrt(dx*dx*4 + dy*dy);
+                            }
+                        }
+
+                        if (isCandidate && distance < minDistance) {
+                            minDistance = distance;
+                            bestMatchIndex = i;
+                        }
+                    }
+
+                    if (bestMatchIndex !== -1) {
+                        lastSelectedIndex = bestMatchIndex;
+                        selectStudent(bestMatchIndex, e.ctrlKey || e.metaKey);
+                    }
+                } else if (keyConfig.useSpace && e.key === ' ') {
+                    e.preventDefault();
+                    toggleLock();
+                } else if (e.key.toLowerCase() === keyConfig.keyUp) {
+                    handleSelectedScore(10);
+                } else if (e.key.toLowerCase() === keyConfig.keyDown) {
+                    handleSelectedScore(-10);
+                }
+            });
+        });
+
+        function parseJSON(data) {
+            if (!Array.isArray(data)) return;
+            data.forEach(item => {
+                let student = { ...item };
+                student.week_score = parseInt(student.week_score) || 0;
+                student.total_score = parseInt(student.total_score) || 0;
+                student.coins = parseInt(student.coins) || 0;
+                student.isLocked = false; 
+                studentsData.push(student);
+            });
+        }
+
+        function setupGrid() {
+            const rows = parseInt(document.getElementById('rows-input').value) || 7;
+            const cols = parseInt(document.getElementById('cols-input').value) || 7;
+            
+            const gridLayer = document.getElementById('grid-layer');
+            gridLayer.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+            gridLayer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            gridLayer.style.gap = '24px'; 
+            
+            gridLayer.innerHTML = '';
+            for(let i = 0; i < rows * cols; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'grid-cell';
+                gridLayer.appendChild(cell);
+            }
+
+            const canvas = document.getElementById('canvas');
+            const cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+            const cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+
+            // 重新计算网格时，让已有的卡片“就近入框”
+            studentsData.forEach(student => {
+                if (student.left && student.top) {
+                    const currentLeft = parseFloat(student.left);
+                    const currentTop = parseFloat(student.top);
+                    let colIndex = Math.round((currentLeft - 24) / (cellWidth + 24));
+                    let rowIndex = Math.round((currentTop - 24) / (cellHeight + 24));
+                    colIndex = Math.max(0, Math.min(colIndex, cols - 1));
+                    rowIndex = Math.max(0, Math.min(rowIndex, rows - 1));
+                    student.left = (24 + colIndex * (cellWidth + 24)) + 'px';
+                    student.top = (24 + rowIndex * (cellHeight + 24)) + 'px';
+                }
+            });
+
+            renderCards(rows, cols);
+        }
+
+        function alignCards() {
+            const rows = parseInt(document.getElementById('rows-input').value) || 7;
+            const cols = parseInt(document.getElementById('cols-input').value) || 7;
+            const canvas = document.getElementById('canvas');
+            const cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+            const cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+
+            hasUnsavedChanges = true; // 对齐操作会改变位置，标记为未保存
+
+            // 记录每个格子已经被占用的情况
+            const occupiedCells = new Set();
+
+            // 按照卡片的 z-index 排序，z-index 小的（在下面的）优先占据目标格子，上面的卡片会被挤走
+            const sortedIndices = Array.from({ length: studentsData.length }, (_, i) => i).sort((a, b) => {
+                const cardA = document.getElementById(`card-${a}`);
+                const cardB = document.getElementById(`card-${b}`);
+                const zA = cardA ? parseInt(window.getComputedStyle(cardA).zIndex) || 0 : 0;
+                const zB = cardB ? parseInt(window.getComputedStyle(cardB).zIndex) || 0 : 0;
+                return zA - zB; // 升序，z-index 小的在前
+            });
+
+            sortedIndices.forEach(index => {
+                const student = studentsData[index];
+                const card = document.getElementById(`card-${index}`);
+                if (!card) return;
+                
+                const currentLeft = parseFloat(card.style.left);
+                const currentTop = parseFloat(card.style.top);
+                
+                let targetCol = Math.round((currentLeft - 24) / (cellWidth + 24));
+                let targetRow = Math.round((currentTop - 24) / (cellHeight + 24));
+                
+                targetCol = Math.max(0, Math.min(targetCol, cols - 1));
+                targetRow = Math.max(0, Math.min(targetRow, rows - 1));
+                
+                // 如果目标格子已经被占用，则寻找最近的空闲格子
+                if (occupiedCells.has(`${targetRow},${targetCol}`)) {
+                    let found = false;
+                    let radius = 1;
+                    while (!found && radius < Math.max(rows, cols)) {
+                        for (let r = Math.max(0, targetRow - radius); r <= Math.min(rows - 1, targetRow + radius); r++) {
+                            for (let c = Math.max(0, targetCol - radius); c <= Math.min(cols - 1, targetCol + radius); c++) {
+                                if (!occupiedCells.has(`${r},${c}`)) {
+                                    targetRow = r;
+                                    targetCol = c;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (found) break;
+                        }
+                        radius++;
+                    }
+                }
+
+                occupiedCells.add(`${targetRow},${targetCol}`);
+
+                const newLeft = (24 + targetCol * (cellWidth + 24)) + 'px';
+                const newTop = (24 + targetRow * (cellHeight + 24)) + 'px';
+                
+                // 添加过渡动画让吸附更平滑
+                card.style.transition = 'left 0.3s ease, top 0.3s ease';
+                card.style.left = newLeft;
+                card.style.top = newTop;
+                
+                // 动画结束后移除 transition，以免影响后续的自由拖拽
+                setTimeout(() => {
+                    card.style.transition = '';
+                }, 300);
+
+                student.left = newLeft;
+                student.top = newTop;
+            });
+        }
+
+        function renderCards(rows, cols) {
+            const cardsLayer = document.getElementById('cards-layer');
+            cardsLayer.innerHTML = '';
+            const canvas = document.getElementById('canvas');
+
+            const cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+            const cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+
+            studentsData.forEach((student, index) => {
+                const card = document.createElement('div');
+                card.id = `card-${index}`;
+                card.className = `student-card`;
+                
+                card.style.width = cellWidth + 'px';
+                card.style.height = cellHeight + 'px';
+                
+                // 🛠️ 恢复较大字号
+                const nameSize = Math.max(14, Math.min(22, cellHeight * 0.25));
+                const scoreSize = Math.max(26, Math.min(46, cellHeight * 0.45));
+
+                if (student.class && student.class.toUpperCase() === '7A') card.classList.add('card-7A');
+                if (student.class && student.class.toUpperCase() === '8B') card.classList.add('card-8B');
+                if (student.isLocked) card.classList.add('locked');
+                if (selectedIndices.has(index)) card.classList.add('selected');
+
+                const colIndex = index % cols;
+                const rowIndex = Math.floor(index / cols);
+                const initLeft = 24 + colIndex * (cellWidth + 24);
+                const initTop = 24 + rowIndex * (cellHeight + 24);
+                card.style.left = student.left || (initLeft + 'px');
+                card.style.top = student.top || (initTop + 'px');
+
+                let badgeHTML = '';
+                let lockHTML = student.isLocked ? `<div class="lock-icon">🔒</div>` : '';
+                let statusHTML = '';
+                
+                if (student.status && student.status.trim().length > 0) {
+                    const statusStr = student.status.replace(/"/g, '');
+                    const items = statusStr.split(/[，,]/).map(s => s.trim()).filter(s => s.length > 0);
+                    if (items.length > 0) {
+                        badgeHTML = `<div class="status-badge" id="badge-${index}">${items.length}</div>`;
+                        items.forEach(item => {
+                            statusHTML += `<div class="status-text" data-item="${item}">${item}</div>`;
+                        });
+                    }
+                }
+
+                // 🛠️ 学号半透明衬在名字下面
+                card.innerHTML = `
+                    ${badgeHTML}
+                    ${lockHTML}
+                    <div class="card-top-status">${statusHTML}</div>
+                    <div class="card-bottom-main">
+                        <div class="info-left-box">
+                            <div class="info-id" style="font-size: ${nameSize * 2.8}px">${student.id}</div>
+                            <div class="info-name" style="font-size: ${nameSize}px">${student.name}</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center;">
+                            <div class="student-score" id="exp-text-${index}" style="font-size: ${scoreSize * 0.8}px; color: #000000; line-height: 1.1; font-weight: 900;">${student.week_score}</div>
+                            <div class="student-score" id="gem-text-${index}" style="font-size: ${scoreSize * 0.4}px; color: #94a3b8; line-height: 1.1;">🪙${student.coins}</div>
+                        </div>
+                    </div>
+                `;
+
+                // 鼠标事件绑定
+                card.addEventListener('mousedown', (e) => {
+                    lastSelectedIndex = index;
+                    selectStudent(index, e.ctrlKey || e.metaKey); // 🔒 关键修复：哪怕锁定了也优先允许被“选中”
+                    if (student.isLocked) return; // 但如果是锁定的，直接 return 拦截后面的拖拽逻辑
+                    startDrag(e, card);
+                });
+
+                // 双击消除作业
+                const statusElements = card.querySelectorAll('.status-text');
+                statusElements.forEach(el => {
+                    el.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        const itemText = el.getAttribute('data-item');
+                        removeHomework(index, itemText, el);
+                    });
+                    // 阻止作业标签的 mousedown 冒泡，防止触发拖拽
+                    el.addEventListener('mousedown', (e) => e.stopPropagation());
+                });
+
+                cardsLayer.appendChild(card);
+            });
+        }
+
+        function removeHomework(studentIndex, itemText, element) {
+            const student = studentsData[studentIndex];
+            if (!student.status) return;
+            
+            let items = student.status.replace(/"/g, '').split(/[，,]/).map(s => s.trim()).filter(s => s.length > 0);
+            const itemIdx = items.indexOf(itemText);
+            if (itemIdx > -1) {
+                items.splice(itemIdx, 1);
+                student.status = items.join('，');
+                element.remove();
+                hasUnsavedChanges = true; // 标记为未保存
+                
+                const badge = document.getElementById(`badge-${studentIndex}`);
+                if (badge) {
+                    if (items.length > 0) {
+                        badge.innerText = items.length;
+                    } else {
+                        badge.remove();
+                    }
+                }
+            }
+        }
+
+        async function saveToCloud() {
+            if (studentsData.length === 0) return;
+            
+            const btn = document.getElementById('save-btn');
+            const originalText = btn.innerText;
+            btn.innerText = '⏳ 保存中...';
+            
+            try {
+                // 过滤掉不需要保存到云端的字段，比如 isLocked
+                const dataToSave = studentsData.map(student => {
+                    const { isLocked, ...rest } = student;
+                    return rest;
+                });
+
+                const response = await fetch('/api/students', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(dataToSave)
+                });
+
+                if (!response.ok) {
+                    throw new Error('云端保存失败');
+                }
+
+                btn.innerText = '✅ 成功';
+                hasUnsavedChanges = false; // 保存成功，重置标记
+                setTimeout(() => btn.innerText = originalText, 2000);
+            } catch (err) {
+                btn.innerText = '❌ 失败';
+                setTimeout(() => btn.innerText = originalText, 2000);
+                alert('保存失败: ' + err.message);
+            }
+        }
+
+        function selectStudent(index, isMulti = false) {
+            if (!isMulti) {
+                clearSelection();
+            }
+            
+            if (selectedIndices.has(index)) {
+                if (isMulti) {
+                    selectedIndices.delete(index);
+                    const card = document.getElementById(`card-${index}`);
+                    if (card) card.classList.remove('selected');
+                }
+            } else {
+                selectedIndices.add(index);
+                const card = document.getElementById(`card-${index}`);
+                if (card) card.classList.add('selected');
+            }
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.student-card').forEach(c => c.classList.remove('selected'));
+            selectedIndices.clear();
+        }
+
+        function toggleLock() {
+            if (selectedIndices.size === 0) return;
+            let changed = false;
+            selectedIndices.forEach(index => {
+                const student = studentsData[index];
+                student.isLocked = !student.isLocked;
+                changed = true;
+                
+                const card = document.getElementById(`card-${index}`);
+                if (card) {
+                    if (student.isLocked) {
+                        card.classList.add('locked');
+                        if (!card.querySelector('.lock-icon')) {
+                            const lockIcon = document.createElement('div');
+                            lockIcon.className = 'lock-icon';
+                            lockIcon.innerText = '🔒';
+                            card.insertBefore(lockIcon, card.firstChild);
+                        }
+                    } else {
+                        card.classList.remove('locked');
+                        const lockIcon = card.querySelector('.lock-icon');
+                        if (lockIcon) lockIcon.remove();
+                    }
+                }
+            });
+            if (changed) hasUnsavedChanges = true; // 标记为未保存
+        }
+
+        function handleSelectedScore(delta) {
+            if (selectedIndices.size === 0) return;
+            let changed = false;
+            selectedIndices.forEach(index => {
+                const student = studentsData[index];
+                if (student.isLocked) return; 
+
+                student.week_score += delta;
+                changed = true;
+                
+                const expEl = document.getElementById(`exp-text-${index}`);
+                if (expEl) {
+                    expEl.innerText = `${student.week_score}`;
+                }
+
+                const card = document.getElementById(`card-${index}`);
+                if (card) {
+                    showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, delta);
+                }
+            });
+            if (changed) hasUnsavedChanges = true; // 标记为未保存
+        }
+
+        function handleConsumeGem(amount) {
+            if (selectedIndices.size === 0) return;
+            let changed = false;
+            selectedIndices.forEach(index => {
+                const student = studentsData[index];
+                if (student.isLocked) return; 
+
+                if (student.coins < amount) {
+                    const card = document.getElementById(`card-${index}`);
+                    if (card) {
+                        showFloatingText(card.offsetLeft + card.clientWidth / 2, card.offsetTop + card.clientHeight / 2, '余额不足', '#ef4444');
+                    }
+                    return;
+                }
+
+                student.coins -= amount;
+                changed = true;
+                
+                const gemEl = document.getElementById(`gem-text-${index}`);
+                if (gemEl) {
+                    gemEl.innerText = `🪙${student.coins}`;
+                }
+
+                const card = document.getElementById(`card-${index}`);
+                if (card) {
+                    showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, -amount, '#eab308');
+                }
+            });
+            if (changed) hasUnsavedChanges = true;
+        }
+
+        function handleAllScore(delta) {
+            let changed = false;
+            studentsData.forEach((student, index) => {
+                if (student.isLocked) return; 
+                student.week_score += delta;
+                changed = true;
+                
+                const expEl = document.getElementById(`exp-text-${index}`);
+                if (expEl) {
+                    expEl.innerText = `${student.week_score}`;
+                }
+
+                const card = document.getElementById(`card-${index}`);
+                if (card) {
+                    showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, delta);
+                }
+            });
+            if (changed) hasUnsavedChanges = true; // 标记为未保存
+        }
+
+        function showFloatingNum(left, top, delta, customColor = null) {
+            const num = document.createElement('div');
+            num.className = 'floating-num';
+            num.innerText = delta > 0 ? `+${delta}` : `${delta}`;
+            num.style.color = customColor ? customColor : (delta > 0 ? '#eab308' : '#ef4444');
+            num.style.left = left + 'px';
+            num.style.top = top + 'px';
+            document.getElementById('canvas').appendChild(num);
+            setTimeout(() => num.remove(), 600);
+        }
+
+        function showFloatingText(left, top, text, color) {
+            const el = document.createElement('div');
+            el.className = 'floating-num';
+            el.innerText = text;
+            el.style.color = color;
+            el.style.left = left + 'px';
+            el.style.top = top + 'px';
+            el.style.transform = 'translate(-50%, -50%)';
+            document.getElementById('canvas').appendChild(el);
+            setTimeout(() => el.remove(), 800);
+        }
+
+        function startDrag(e, card) {
+            activeCard = card;
+            document.querySelectorAll('.student-card').forEach(c => c.style.zIndex = 10);
+            card.style.zIndex = 100;
+
+            offsetX = e.clientX - card.offsetLeft;
+            offsetY = e.clientY - card.offsetTop;
+
+            document.addEventListener('mousemove', dragMove);
+            document.addEventListener('mouseup', endDrag);
+        }
+
+        function dragMove(e) {
+            if (!activeCard) return;
+            let x = e.clientX - offsetX;
+            let y = e.clientY - offsetY;
+            
+            const canvas = document.getElementById('canvas');
+            x = Math.max(0, Math.min(x, canvas.clientWidth - activeCard.clientWidth));
+            y = Math.max(0, Math.min(y, canvas.clientHeight - activeCard.clientHeight));
+
+            activeCard.style.left = x + 'px';
+            activeCard.style.top = y + 'px';
+        }
+
+        function endDrag() {
+            if (activeCard) {
+                const index = parseInt(activeCard.id.split('-')[1]);
+                if (!isNaN(index) && studentsData[index]) {
+                    // 只有位置真正改变了才标记为未保存
+                    if (studentsData[index].left !== activeCard.style.left || studentsData[index].top !== activeCard.style.top) {
+                        studentsData[index].left = activeCard.style.left;
+                        studentsData[index].top = activeCard.style.top;
+                        hasUnsavedChanges = true; // 标记为未保存
+                    }
+                }
+            }
+            activeCard = null;
+            document.removeEventListener('mousemove', dragMove);
+            document.removeEventListener('mouseup', endDrag);
+        }
+    </script>
+</body>
+</html>

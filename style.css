@@ -1,0 +1,304 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+body {
+    background-color: #1e293b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 顶部设置栏 */
+#control-panel {
+    background-color: #0f172a;
+    color: #fff;
+    padding: 0 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 14px;
+    height: 60px;
+    z-index: 100;
+    border-bottom: 1px solid #334155;
+}
+#control-panel input {
+    background: #334155;
+    border: 1px solid #475569;
+    color: #fff;
+    padding: 4px 8px;
+    width: 55px;
+    border-radius: 4px;
+    text-align: center;
+}
+.btn {
+    color: #fff;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+.btn-blue { background: #2563eb; }
+.btn-blue:hover { background: #1d4ed8; }
+.btn-op { font-size: 22px; padding: 2px 16px; }
+.btn-op-plus { background: #eab308; }
+.btn-op-plus:hover { background: #ca8a04; }
+.btn-op-minus { background: #ef4444; }
+.btn-op-minus:hover { background: #dc2626; }
+.btn-lock { background: #e2e8f0; color: #1e293b; }
+.btn-lock:hover { background: #cbd5e1; }
+
+#canvas {
+    flex: 1;
+    position: relative;
+    width: 100%;
+    padding: 24px;
+}
+/* 等比配套缩放的虚线参考网格 */
+.grid-overlay {
+    position: absolute;
+    top: 24px; left: 24px;
+    width: calc(100% - 48px);
+    height: calc(100% - 48px);
+    display: grid;
+    pointer-events: none;
+}
+.grid-cell {
+    border: 2px dashed rgba(255, 255, 255, 0.3);
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    width: 100%;
+    height: 100%;
+}
+
+/* 学生卡片 UI（精简版） */
+.student-card {
+    position: absolute;
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    cursor: move;
+    user-select: none;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+    z-index: 10;
+}
+
+/* 7A / 8B 基础边框样式 */
+.card-7A { border: 3px solid #f97316; }
+.card-8B { border: 3px solid #0284c7; }
+
+/* 选中外发光 */
+.student-card.selected {
+    box-shadow: 0 0 15px #94a3b8, 0 4px 10px rgba(0, 0, 0, 0.4);
+    border-color: #94a3b8 !important;
+}
+.card-7A.selected {
+    box-shadow: 0 0 15px #f97316, 0 4px 10px rgba(0, 0, 0, 0.4);
+    border-color: #f97316 !important;
+}
+.card-8B.selected {
+    box-shadow: 0 0 15px #0284c7, 0 4px 10px rgba(0, 0, 0, 0.4);
+    border-color: #0284c7 !important;
+}
+
+/* 锁定状态：仅外观变灰，依然允许被鼠标选中 */
+.student-card.locked {
+    background-color: #e2e8f0 !important;
+    opacity: 0.7;
+}
+.student-card.locked .info-name,
+.student-card.locked .student-score {
+    color: #64748b !important;
+}
+
+/* 内部层级布局 */
+.card-top-status {
+    position: absolute;
+    top: -10px;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    pointer-events: auto;
+    z-index: 20;
+}
+.status-empty { 
+    display: none;
+}
+.status-text {
+    font-size: 11px;
+    color: #000000;
+    background-color: #fde047;
+    padding: 2px 6px;
+    border-radius: 2px;
+    box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    font-style: normal;
+    font-weight: bold;
+    transition: all 0.1s;
+}
+.status-text:hover {
+    background-color: #fef08a;
+    transform: scale(1.05);
+}
+
+/* 下部排版（左侧单行姓名，右侧大分数） */
+.card-bottom-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    flex: 1;
+}
+.info-left-box {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+.info-id {
+    position: absolute;
+    left: -2px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-weight: 900;
+    color: #e2e8f0;
+    z-index: 1;
+    pointer-events: none;
+    line-height: 0.8;
+    letter-spacing: -2px;
+}
+.info-name {
+    font-weight: 900;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 2;
+    position: relative;
+    padding-left: 8px;
+}
+.student-score {
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1;
+    text-align: right;
+    padding-left: 5px;
+    transition: all 0.3s ease;
+}
+.score-glow {
+    color: #0f172a;
+    text-shadow: 0 0 12px rgba(253, 224, 71, 1), 0 0 20px rgba(234, 179, 8, 0.8);
+}
+
+/* 右上角圆形消息气泡 */
+.status-badge {
+    position: absolute;
+    top: -9px; right: -9px;
+    background-color: #ff0000;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: bold;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid #fff;
+    z-index: 10;
+}
+
+/* 右上角锁定小图标 */
+.lock-icon {
+    position: absolute;
+    top: -9px; left: -9px;
+    background-color: #475569;
+    color: #ffffff;
+    font-size: 10px;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid #fff;
+    z-index: 10;
+}
+
+/* 分数上飘动画 */
+.floating-num {
+    position: absolute;
+    font-weight: bold;
+    font-size: 24px;
+    pointer-events: none;
+    animation: floatUp 0.6s ease-out forwards;
+    z-index: 150;
+}
+@keyframes floatUp {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-35px); }
+}
+
+/* 设置弹窗 */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+.modal-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+}
+.modal-content {
+    background: #1e293b;
+    padding: 24px;
+    border-radius: 8px;
+    width: 320px;
+    color: #fff;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+}
+.modal-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 16px;
+    border-bottom: 1px solid #334155;
+    padding-bottom: 8px;
+}
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.setting-item input[type="text"] {
+    width: 60px;
+    background: #334155;
+    border: 1px solid #475569;
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-align: center;
+    text-transform: uppercase;
+}
+.modal-actions {
+    margin-top: 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
