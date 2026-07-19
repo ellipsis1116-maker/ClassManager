@@ -5,7 +5,14 @@ export async function onRequestGet(context) {
   
   try {
     // 从 KV 中读取键名为 'student_list' 的数据
-    const data = await env.KV.get('student_list');
+    let data = await env.KV.get('student_list');
+    
+    // 检查数据是否为有效的 JSON，如果不是（比如是 "Hello world"），则返回空数组
+    try {
+      if (data) JSON.parse(data);
+    } catch (e) {
+      data = null;
+    }
     
     return new Response(data || "[]", {
       headers: {
