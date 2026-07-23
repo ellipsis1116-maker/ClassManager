@@ -47,6 +47,13 @@
         <div id="cards-layer"></div>
     </div>
 
+    <!-- 横屏提示遮罩 -->
+    <div id="landscape-prompt">
+        <div class="icon">📱</div>
+        <h2>请旋转手机</h2>
+        <p style="margin-top: 10px; color: #94a3b8;">为了获得最佳体验，请关闭方向锁定并将手机横放</p>
+    </div>
+
     <!-- 设置弹窗 -->
     <div id="settings-modal" class="modal-overlay">
         <div class="modal-content">
@@ -415,9 +422,31 @@
             const rows = parseInt(document.getElementById('rows-input').value) || 7;
             const cols = parseInt(document.getElementById('cols-input').value) || 7;
             
+            const canvas = document.getElementById('canvas');
+            
+            // 设定最小卡片尺寸，保证在手机横屏时不会被压扁
+            const minCellWidth = 80;
+            const minCellHeight = 60;
+            
+            // 计算理论上的单元格尺寸
+            let cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+            let cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+            
+            // 如果理论尺寸小于最小尺寸，则强制使用最小尺寸，并让 grid-layer 撑开 canvas 产生滚动条
+            if (cellWidth < minCellWidth) cellWidth = minCellWidth;
+            if (cellHeight < minCellHeight) cellHeight = minCellHeight;
+
             const gridLayer = document.getElementById('grid-layer');
-            gridLayer.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-            gridLayer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            
+            // 动态设置 grid-layer 的宽高，确保它能容纳所有卡片
+            const totalWidth = 48 + cols * cellWidth + (cols - 1) * 24;
+            const totalHeight = 48 + rows * cellHeight + (rows - 1) * 24;
+            
+            gridLayer.style.width = `calc(${totalWidth}px - 48px)`;
+            gridLayer.style.height = `calc(${totalHeight}px - 48px)`;
+            
+            gridLayer.style.gridTemplateRows = `repeat(${rows}, ${cellHeight}px)`;
+            gridLayer.style.gridTemplateColumns = `repeat(${cols}, ${cellWidth}px)`;
             gridLayer.style.gap = '24px'; 
             
             gridLayer.innerHTML = '';
@@ -426,10 +455,6 @@
                 cell.className = 'grid-cell';
                 gridLayer.appendChild(cell);
             }
-
-            const canvas = document.getElementById('canvas');
-            const cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
-            const cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
 
             // 重新计算网格时，让已有的卡片“就近入框”
             studentsData.forEach(student => {
@@ -528,8 +553,12 @@
             cardsLayer.innerHTML = '';
             const canvas = document.getElementById('canvas');
 
-            const cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
-            const cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+            const minCellWidth = 80;
+            const minCellHeight = 60;
+            let cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+            let cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+            if (cellWidth < minCellWidth) cellWidth = minCellWidth;
+            if (cellHeight < minCellHeight) cellHeight = minCellHeight;
 
             studentsData.forEach((student, index) => {
                 const card = document.createElement('div');
@@ -607,6 +636,44 @@
                 card.addEventListener('mouseenter', (e) => {
                     if (isPainting && currentTool) {
                         applyToolAction(index);
+                    }
+                });
+
+                // 触摸事件绑定 (移动端支持)
+                card.addEventListener('touchstart', (e) => {
+                    if (!currentTool) {
+                        lastSelectedIndex = index;
+                        selectStudent(index, false);
+                        if (student.isLocked) return;
+                        startDrag(e.touches[0], card, true);
+                    } else {
+                        isPainting = true;
+                        paintedIndices.clear();
+                        applyToolAction(index);
+                    }
+                }, { passive: false });
+
+                card.addEventListener('touchmove', (e) => {
+                    if (isPainting && currentTool) {
+                        e.preventDefault(); // 防止滚动
+                        const touch = e.touches[0];
+                        const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
+                        if (targetElement) {
+                            const targetCard = targetElement.closest('.student-card');
+                            if (targetCard) {
+                                const targetIndex = parseInt(targetCard.id.split('-')[1]);
+                                if (!isNaN(targetIndex)) {
+                                    applyToolAction(targetIndex);
+                                }
+                            }
+                        }
+                    }
+                }, { passive: false });
+
+                card.addEventListener('touchend', () => {
+                    if (isPainting) {
+                        isPainting = false;
+                        paintedIndices.clear();
                     }
                 });
 
@@ -854,26 +921,50 @@
             setTimeout(() => el.remove(), 800);
         }
 
-        function startDrag(e, card) {
+        let isTouchDrag = false;
+
+        function startDrag(e, card, isTouch = false) {
             activeCard = card;
+            isTouchDrag = isTouch;
             document.querySelectorAll('.student-card').forEach(c => c.style.zIndex = 10);
             card.style.zIndex = 100;
 
-            offsetX = e.clientX - card.offsetLeft;
-            offsetY = e.clientY - card.offsetTop;
+            const canvas = document.getElementById('canvas');
+            // 考虑 canvas 的滚动偏移量
+            offsetX = e.clientX + canvas.scrollLeft - card.offsetLeft;
+            offsetY = e.clientY + canvas.scrollTop - card.offsetTop;
 
-            document.addEventListener('mousemove', dragMove);
-            document.addEventListener('mouseup', endDrag);
+            if (isTouch) {
+                document.addEventListener('touchmove', dragMove, { passive: false });
+                document.addEventListener('touchend', endDrag);
+            } else {
+                document.addEventListener('mousemove', dragMove);
+                document.addEventListener('mouseup', endDrag);
+            }
         }
 
         function dragMove(e) {
             if (!activeCard) return;
-            let x = e.clientX - offsetX;
-            let y = e.clientY - offsetY;
+            
+            if (isTouchDrag) {
+                e.preventDefault(); // 阻止触摸拖拽时的页面滚动
+            }
+
+            const clientX = isTouchDrag ? e.touches[0].clientX : e.clientX;
+            const clientY = isTouchDrag ? e.touches[0].clientY : e.clientY;
             
             const canvas = document.getElementById('canvas');
-            x = Math.max(0, Math.min(x, canvas.clientWidth - activeCard.clientWidth));
-            y = Math.max(0, Math.min(y, canvas.clientHeight - activeCard.clientHeight));
+            
+            let x = clientX + canvas.scrollLeft - offsetX;
+            let y = clientY + canvas.scrollTop - offsetY;
+            
+            // 限制在 grid-layer 的范围内，而不是可视区域内
+            const gridLayer = document.getElementById('grid-layer');
+            const maxX = gridLayer.clientWidth + 48 - activeCard.clientWidth;
+            const maxY = gridLayer.clientHeight + 48 - activeCard.clientHeight;
+
+            x = Math.max(0, Math.min(x, maxX));
+            y = Math.max(0, Math.min(y, maxY));
 
             activeCard.style.left = x + 'px';
             activeCard.style.top = y + 'px';
@@ -892,8 +983,14 @@
                 }
             }
             activeCard = null;
-            document.removeEventListener('mousemove', dragMove);
-            document.removeEventListener('mouseup', endDrag);
+            if (isTouchDrag) {
+                document.removeEventListener('touchmove', dragMove);
+                document.removeEventListener('touchend', endDrag);
+            } else {
+                document.removeEventListener('mousemove', dragMove);
+                document.removeEventListener('mouseup', endDrag);
+            }
+            isTouchDrag = false;
         }
     </script>
 </body>
