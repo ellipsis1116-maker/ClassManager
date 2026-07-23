@@ -513,21 +513,18 @@
                 const newLeftPx = 24 + targetCol * (cellWidth + 24);
                 const newTopPx = 24 + targetRow * (cellHeight + 24);
                 
-                const leftPercent = (newLeftPx / canvas.clientWidth) * 100 + '%';
-                const topPercent = (newTopPx / canvas.clientHeight) * 100 + '%';
-                
                 // 添加过渡动画让吸附更平滑
                 card.style.transition = 'left 0.3s ease, top 0.3s ease';
-                card.style.left = leftPercent;
-                card.style.top = topPercent;
+                card.style.left = newLeftPx + 'px';
+                card.style.top = newTopPx + 'px';
                 
                 // 动画结束后移除 transition，以免影响后续的自由拖拽
                 setTimeout(() => {
                     card.style.transition = '';
                 }, 300);
 
-                student.left = leftPercent;
-                student.top = topPercent;
+                student.logicalX = targetCol;
+                student.logicalY = targetRow;
             });
         }
 
@@ -558,19 +555,30 @@
 
                 const colIndex = index % cols;
                 const rowIndex = Math.floor(index / cols);
-                const initLeftPx = 24 + colIndex * (cellWidth + 24);
-                const initTopPx = 24 + rowIndex * (cellHeight + 24);
                 
-                if (student.left && student.left.toString().endsWith('%')) {
-                    card.style.left = student.left;
-                    card.style.top = student.top;
-                } else {
-                    // Convert legacy px to % or use init
-                    const leftPx = student.left ? parseFloat(student.left) : initLeftPx;
-                    const topPx = student.top ? parseFloat(student.top) : initTopPx;
-                    card.style.left = (leftPx / canvas.clientWidth) * 100 + '%';
-                    card.style.top = (topPx / canvas.clientHeight) * 100 + '%';
+                let logicalX = student.logicalX !== undefined ? student.logicalX : colIndex;
+                let logicalY = student.logicalY !== undefined ? student.logicalY : rowIndex;
+                
+                // 兼容旧数据：如果只有 left/top (px 或 %)，尝试转换为逻辑坐标
+                if (student.logicalX === undefined && student.left) {
+                    let leftPx = 0;
+                    let topPx = 0;
+                    if (student.left.toString().endsWith('%')) {
+                        leftPx = (parseFloat(student.left) / 100) * canvas.clientWidth;
+                        topPx = (parseFloat(student.top) / 100) * canvas.clientHeight;
+                    } else {
+                        leftPx = parseFloat(student.left);
+                        topPx = parseFloat(student.top);
+                    }
+                    logicalX = (leftPx - 24) / (cellWidth + 24);
+                    logicalY = (topPx - 24) / (cellHeight + 24);
                 }
+
+                const leftPx = 24 + logicalX * (cellWidth + 24);
+                const topPx = 24 + logicalY * (cellHeight + 24);
+                
+                card.style.left = leftPx + 'px';
+                card.style.top = topPx + 'px';
 
                 let badgeHTML = '';
                 let lockHTML = student.isLocked ? `<div class="lock-icon">🔒</div>` : '';
@@ -975,19 +983,23 @@
                 const index = parseInt(activeCard.id.split('-')[1]);
                 if (!isNaN(index) && studentsData[index]) {
                     const canvas = document.getElementById('canvas');
+                    const rows = parseInt(document.getElementById('rows-input').value) || 7;
+                    const cols = parseInt(document.getElementById('cols-input').value) || 7;
+                    
+                    let cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+                    let cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+
                     const currentLeftPx = parseFloat(activeCard.style.left);
                     const currentTopPx = parseFloat(activeCard.style.top);
                     
-                    const leftPercent = (currentLeftPx / canvas.clientWidth) * 100 + '%';
-                    const topPercent = (currentTopPx / canvas.clientHeight) * 100 + '%';
-                    
-                    activeCard.style.left = leftPercent;
-                    activeCard.style.top = topPercent;
+                    // 计算逻辑坐标 (允许小数，实现自由拖拽)
+                    const logicalX = (currentLeftPx - 24) / (cellWidth + 24);
+                    const logicalY = (currentTopPx - 24) / (cellHeight + 24);
 
                     // 只有位置真正改变了才标记为未保存
-                    if (studentsData[index].left !== leftPercent || studentsData[index].top !== topPercent) {
-                        studentsData[index].left = leftPercent;
-                        studentsData[index].top = topPercent;
+                    if (studentsData[index].logicalX !== logicalX || studentsData[index].logicalY !== logicalY) {
+                        studentsData[index].logicalX = logicalX;
+                        studentsData[index].logicalY = logicalY;
                         hasUnsavedChanges = true; // 标记为未保存
                     }
                 }
