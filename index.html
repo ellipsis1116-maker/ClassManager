@@ -22,8 +22,8 @@
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; flex: 1;" id="tools-container">
             <button id="lock-btn" class="btn btn-lock">🔒 锁定</button>
             <button id="all-up-btn" class="btn btn-blue" style="background:#10b981;">全班 +</button>
-            <button class="btn tool-btn" data-tool="plus" style="background:#10b981; font-size: 20px; padding: 5px 20px; font-weight: bold;">+</button>
-            <button class="btn tool-btn" data-tool="minus" style="background:#ef4444; font-size: 20px; padding: 5px 20px; font-weight: bold;">-</button>
+            <button class="btn tool-btn" data-tool="plus" style="background:#10b981;">+</button>
+            <button class="btn tool-btn" data-tool="minus" style="background:#ef4444;">-</button>
             <button id="all-down-btn" class="btn btn-blue" style="background:#ef4444;">全班 -</button>
             <button class="btn tool-btn" data-tool="consume" style="background:#eab308; color: #000; font-weight: bold;">兑奖</button>
         </div>
@@ -408,12 +408,20 @@
 
         function parseJSON(data) {
             if (!Array.isArray(data)) return;
-            data.forEach(item => {
+            data.forEach((item, index) => {
                 let student = { ...item };
                 student.week_score = parseInt(student.week_score) || 0;
                 student.total_score = parseInt(student.total_score) || 0;
                 student.coins = parseInt(student.coins) || 0;
                 student.isLocked = false; 
+                
+                // 如果没有行列数据，则根据初始索引分配
+                if (student.row === undefined || student.col === undefined) {
+                    const cols = parseInt(document.getElementById('cols-input').value) || 7;
+                    student.col = index % cols;
+                    student.row = Math.floor(index / cols);
+                }
+                
                 studentsData.push(student);
             });
         }
@@ -456,20 +464,6 @@
                 gridLayer.appendChild(cell);
             }
 
-            // 重新计算网格时，让已有的卡片“就近入框”
-            studentsData.forEach(student => {
-                if (student.left && student.top) {
-                    const currentLeft = parseFloat(student.left);
-                    const currentTop = parseFloat(student.top);
-                    let colIndex = Math.round((currentLeft - 24) / (cellWidth + 24));
-                    let rowIndex = Math.round((currentTop - 24) / (cellHeight + 24));
-                    colIndex = Math.max(0, Math.min(colIndex, cols - 1));
-                    rowIndex = Math.max(0, Math.min(rowIndex, rows - 1));
-                    student.left = (24 + colIndex * (cellWidth + 24)) + 'px';
-                    student.top = (24 + rowIndex * (cellHeight + 24)) + 'px';
-                }
-            });
-
             renderCards(rows, cols);
         }
 
@@ -499,11 +493,8 @@
                 const card = document.getElementById(`card-${index}`);
                 if (!card) return;
                 
-                const currentLeft = parseFloat(card.style.left);
-                const currentTop = parseFloat(card.style.top);
-                
-                let targetCol = Math.round((currentLeft - 24) / (cellWidth + 24));
-                let targetRow = Math.round((currentTop - 24) / (cellHeight + 24));
+                let targetCol = student.col;
+                let targetRow = student.row;
                 
                 targetCol = Math.max(0, Math.min(targetCol, cols - 1));
                 targetRow = Math.max(0, Math.min(targetRow, rows - 1));
@@ -543,8 +534,8 @@
                     card.style.transition = '';
                 }, 300);
 
-                student.left = newLeft;
-                student.top = newTop;
+                student.col = targetCol;
+                student.row = targetRow;
             });
         }
 
@@ -568,21 +559,23 @@
                 card.style.width = cellWidth + 'px';
                 card.style.height = cellHeight + 'px';
                 
-                // 🛠️ 恢复较大字号
-                const nameSize = Math.max(14, Math.min(22, cellHeight * 0.25));
-                const scoreSize = Math.max(26, Math.min(46, cellHeight * 0.45));
+                // 🛠️ 优化字号，防止 iPad Mini 截断
+                const nameSize = Math.max(12, Math.min(20, cellHeight * 0.22));
+                const scoreSize = Math.max(20, Math.min(40, cellHeight * 0.4));
 
                 if (student.class && student.class.toUpperCase() === '7A') card.classList.add('card-7A');
                 if (student.class && student.class.toUpperCase() === '8B') card.classList.add('card-8B');
                 if (student.isLocked) card.classList.add('locked');
                 if (selectedIndices.has(index)) card.classList.add('selected');
 
-                const colIndex = index % cols;
-                const rowIndex = Math.floor(index / cols);
+                // 使用行列计算绝对位置
+                const colIndex = student.col !== undefined ? student.col : (index % cols);
+                const rowIndex = student.row !== undefined ? student.row : Math.floor(index / cols);
+                
                 const initLeft = 24 + colIndex * (cellWidth + 24);
                 const initTop = 24 + rowIndex * (cellHeight + 24);
-                card.style.left = student.left || (initLeft + 'px');
-                card.style.top = student.top || (initTop + 'px');
+                card.style.left = initLeft + 'px';
+                card.style.top = initTop + 'px';
 
                 let badgeHTML = '';
                 let lockHTML = student.isLocked ? `<div class="lock-icon">🔒</div>` : '';
@@ -605,9 +598,9 @@
                     ${lockHTML}
                     <div class="card-top-status">${statusHTML}</div>
                     <div class="card-bottom-main">
-                        <div class="info-left-box">
-                            <div class="info-id" style="font-size: ${nameSize * 2.8}px">${student.id}</div>
-                            <div class="info-name" style="font-size: ${nameSize}px">${student.name}</div>
+                        <div class="info-left-box" style="padding-left: 2px;">
+                            <div class="info-id" style="font-size: ${nameSize * 2.5}px">${student.id}</div>
+                            <div class="info-name" style="font-size: ${nameSize}px; padding-left: 4px;">${student.name}</div>
                         </div>
                         <div style="display: flex; flex-direction: column; align-items: flex-end; justify-content: center;">
                             <div class="student-score" id="exp-text-${index}" style="font-size: ${scoreSize * 0.8}px; color: #000000; line-height: 1.1; font-weight: 900;">${student.week_score}</div>
@@ -642,11 +635,14 @@
                 // 触摸事件绑定 (移动端支持)
                 card.addEventListener('touchstart', (e) => {
                     if (!currentTool) {
+                        // 阻止默认行为，防止触发滚动或模拟点击
+                        e.preventDefault();
                         lastSelectedIndex = index;
                         selectStudent(index, false);
                         if (student.isLocked) return;
                         startDrag(e.touches[0], card, true);
                     } else {
+                        e.preventDefault();
                         isPainting = true;
                         paintedIndices.clear();
                         applyToolAction(index);
@@ -974,10 +970,43 @@
             if (activeCard) {
                 const index = parseInt(activeCard.id.split('-')[1]);
                 if (!isNaN(index) && studentsData[index]) {
-                    // 只有位置真正改变了才标记为未保存
-                    if (studentsData[index].left !== activeCard.style.left || studentsData[index].top !== activeCard.style.top) {
-                        studentsData[index].left = activeCard.style.left;
-                        studentsData[index].top = activeCard.style.top;
+                    const canvas = document.getElementById('canvas');
+                    const rows = parseInt(document.getElementById('rows-input').value) || 7;
+                    const cols = parseInt(document.getElementById('cols-input').value) || 7;
+                    
+                    const minCellWidth = 80;
+                    const minCellHeight = 60;
+                    let cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
+                    let cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
+                    if (cellWidth < minCellWidth) cellWidth = minCellWidth;
+                    if (cellHeight < minCellHeight) cellHeight = minCellHeight;
+
+                    const currentLeft = parseFloat(activeCard.style.left);
+                    const currentTop = parseFloat(activeCard.style.top);
+                    
+                    // 计算落入的行列
+                    let targetCol = Math.round((currentLeft - 24) / (cellWidth + 24));
+                    let targetRow = Math.round((currentTop - 24) / (cellHeight + 24));
+                    
+                    targetCol = Math.max(0, Math.min(targetCol, cols - 1));
+                    targetRow = Math.max(0, Math.min(targetRow, rows - 1));
+
+                    // 吸附到网格
+                    const newLeft = (24 + targetCol * (cellWidth + 24)) + 'px';
+                    const newTop = (24 + targetRow * (cellHeight + 24)) + 'px';
+                    
+                    activeCard.style.transition = 'left 0.2s ease, top 0.2s ease';
+                    activeCard.style.left = newLeft;
+                    activeCard.style.top = newTop;
+                    
+                    setTimeout(() => {
+                        if(activeCard) activeCard.style.transition = '';
+                    }, 200);
+
+                    // 只有行列真正改变了才标记为未保存
+                    if (studentsData[index].col !== targetCol || studentsData[index].row !== targetRow) {
+                        studentsData[index].col = targetCol;
+                        studentsData[index].row = targetRow;
                         hasUnsavedChanges = true; // 标记为未保存
                     }
                 }
