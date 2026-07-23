@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>手机遥控端</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 15px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 0;
+            background-color: #0f172a;
+            padding: 10px 0;
+            z-index: 10;
+            border-bottom: 1px solid #334155;
+        }
+        .title { font-size: 20px; font-weight: bold; }
+        .status { font-size: 14px; color: #94a3b8; }
+        
+        .group-filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            padding-bottom: 5px;
+        }
+        .filter-btn {
+            background-color: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #334155;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .filter-btn.active {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+
+        .student-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .student-item {
+            background-color: #1e293b;
+            border-radius: 12px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .student-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .student-name {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .student-score {
+            font-size: 14px;
+            color: #94a3b8;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            border: none;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        .btn-minus { background-color: #ef4444; }
+        .btn-plus { background-color: #10b981; }
+        .btn:active { transform: scale(0.95); }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #10b981;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 100;
+        }
+        .toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="title">遥控器</div>
+        <div class="status" id="status-text">已连接</div>
+    </div>
+
+    <div class="group-filters" id="filters-container">
+        <button class="filter-btn active" onclick="filterClass('ALL')">全部</button>
+        <!-- 动态生成班级按钮 -->
+    </div>
+
+    <div class="student-list" id="student-list">
+        <!-- 动态生成学生列表 -->
+    </div>
+
+    <div class="toast" id="toast">操作成功</div>
+
+    <script>
+        let studentsData = [];
+        let currentFilter = 'ALL';
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadData();
+        });
+
+        async function loadData() {
+            const statusEl = document.getElementById('status-text');
+            statusEl.innerText = '加载中...';
+            try {
+                const response = await fetch('/api/students');
+                if (!response.ok) throw new Error('读取失败');
+                studentsData = await response.json();
+                
+                // 确保分数是数字
+                studentsData.forEach(s => {
+                    s.week_score = parseInt(s.week_score) || 0;
+                });
+
+                renderFilters();
+                renderList();
+                statusEl.innerText = '已同步';
+            } catch (err) {
+                statusEl.innerText = '加载失败';
+                alert('加载数据失败: ' + err.message);
+            }
+        }
+
+        function renderFilters() {
+            const container = document.getElementById('filters-container');
+            const classes = new Set(studentsData.map(s => s.class ? s.class.toUpperCase() : '其他'));
+            
+            let html = `<button class="filter-btn ${currentFilter === 'ALL' ? 'active' : ''}" onclick="filterClass('ALL')">全部</button>`;
+            classes.forEach(c => {
+                html += `<button class="filter-btn ${currentFilter === c ? 'active' : ''}" onclick="filterClass('${c}')">${c}班</button>`;
+            });
+            container.innerHTML = html;
+        }
+
+        function filterClass(className) {
+            currentFilter = className;
+            renderFilters();
+            renderList();
+        }
+
+        function renderList() {
+            const container = document.getElementById('student-list');
+            container.innerHTML = '';
+
+            studentsData.forEach((student, index) => {
+                const c = student.class ? student.class.toUpperCase() : '其他';
+                if (currentFilter !== 'ALL' && c !== currentFilter) return;
+
+                const item = document.createElement('div');
+                item.className = 'student-item';
+                item.innerHTML = `
+                    <div class="student-info">
+                        <div class="student-name">${student.id} ${student.name}</div>
+                        <div class="student-score">本周分: <span id="score-${index}">${student.week_score}</span></div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-minus" onclick="updateScore(${index}, -1)">-1</button>
+                        <button class="btn btn-plus" onclick="updateScore(${index}, 1)">+1</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        async function updateScore(index, delta) {
+            const student = studentsData[index];
+            student.week_score += delta;
+            
+            // 乐观更新 UI
+            const scoreEl = document.getElementById(`score-${index}`);
+            if (scoreEl) scoreEl.innerText = student.week_score;
+
+            const statusEl = document.getElementById('status-text');
+            statusEl.innerText = '保存中...';
+
+            try {
+                // 过滤掉不需要保存到云端的字段
+                const dataToSave = studentsData.map(s => {
+                    const { isLocked, _selected, _globalIndex, ...rest } = s;
+                    return rest;
+                });
+
+                const response = await fetch('/api/students', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dataToSave)
+                });
+
+                if (!response.ok) throw new Error('保存失败');
+                
+                statusEl.innerText = '已同步';
+                showToast(`已给 ${student.name} ${delta > 0 ? '+' : ''}${delta}分`);
+            } catch (err) {
+                statusEl.innerText = '保存失败';
+                // 回滚
+                student.week_score -= delta;
+                if (scoreEl) scoreEl.innerText = student.week_score;
+                alert('操作失败: ' + err.message);
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
