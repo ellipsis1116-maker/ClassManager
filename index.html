@@ -24,19 +24,20 @@
         
         <div style="width: 1px; height: 24px; background: #475569; margin: 0 20px;"></div>
         
-        <!-- 中间：分数操作区 -->
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <button id="all-up-btn" class="btn btn-blue" style="background:#eab308;">全班 +</button>
-            <button id="score-up-btn" class="btn btn-op btn-op-plus">+</button>
-            <button id="score-down-btn" class="btn btn-op btn-op-minus">-</button>
-            <button id="all-down-btn" class="btn btn-blue" style="background:#ef4444;">全班 -</button>
+        <!-- 中间：画笔工具区 -->
+        <div style="display: flex; align-items: center; gap: 10px;" id="tools-container">
+            <button class="btn tool-btn active" data-tool="select" style="background:#475569;">🖱️ 选择/拖拽</button>
+            <button class="btn tool-btn" data-tool="plus10" style="background:#10b981;">🟢 +10分</button>
+            <button class="btn tool-btn" data-tool="minus10" style="background:#ef4444;">🔴 -10分</button>
+            <button class="btn tool-btn" data-tool="consume100" style="background:#eab308; color: #000;">🪙 兑奖-100</button>
         </div>
         
         <div style="width: 1px; height: 24px; background: #475569; margin: 0 20px;"></div>
         
-        <!-- 右侧：其他操作 -->
+        <!-- 右侧：全局操作 -->
         <div style="display: flex; align-items: center; gap: 10px;">
-            <button id="consume-gem-btn" class="btn" style="background:#eab308; color: #000;" title="扣除选中的学生 100 余额">🪙 兑奖</button>
+            <button id="all-up-btn" class="btn btn-blue" style="background:#eab308;">全班 +10</button>
+            <button id="all-down-btn" class="btn btn-blue" style="background:#ef4444;">全班 -10</button>
             <button id="lock-btn" class="btn btn-lock">🔒 锁定</button>
             <button id="save-btn" class="btn" style="background:#10b981;">💾 保存</button>
         </div>
@@ -93,6 +94,10 @@
         let activeCard = null;
         let offsetX = 0;
         let offsetY = 0;
+        
+        let currentTool = 'select'; // 当前选中的画笔工具
+        let isPainting = false; // 是否正在涂抹
+        let paintedIndices = new Set(); // 记录一次涂抹中已经操作过的学生，避免重复加分
 
         // 快捷键配置 (默认值)
         let keyConfig = {
@@ -166,9 +171,27 @@
             document.getElementById('render-grid-btn').addEventListener('click', setupGrid);
             document.getElementById('align-btn').addEventListener('click', alignCards);
             
-            document.getElementById('score-up-btn').addEventListener('click', () => handleSelectedScore(10));
-            document.getElementById('score-down-btn').addEventListener('click', () => handleSelectedScore(-10));
-            document.getElementById('consume-gem-btn').addEventListener('click', () => handleConsumeGem(100));
+            // 工具栏切换逻辑
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.tool-btn').forEach(b => {
+                        b.classList.remove('active');
+                        b.style.boxShadow = 'none';
+                    });
+                    const target = e.currentTarget;
+                    target.classList.add('active');
+                    target.style.boxShadow = '0 0 0 3px #ffffff';
+                    currentTool = target.getAttribute('data-tool');
+                    
+                    // 如果切换到非选择工具，清空当前的选择
+                    if (currentTool !== 'select') {
+                        clearSelection();
+                    }
+                });
+            });
+            // 默认选中第一个工具
+            document.querySelector('.tool-btn[data-tool="select"]').style.boxShadow = '0 0 0 3px #ffffff';
+
             document.getElementById('lock-btn').addEventListener('click', toggleLock);
             document.getElementById('all-up-btn').addEventListener('click', () => handleAllScore(10));
             document.getElementById('all-down-btn').addEventListener('click', () => handleAllScore(-10));
@@ -176,8 +199,16 @@
             
             document.getElementById('canvas').addEventListener('mousedown', (e) => {
                 if (e.target.id === 'canvas' || e.target.id === 'grid-layer' || e.target.className === 'grid-cell') {
-                    clearSelection();
+                    if (currentTool === 'select') {
+                        clearSelection();
+                    }
                 }
+            });
+
+            // 全局鼠标松开事件，结束涂抹
+            window.addEventListener('mouseup', () => {
+                isPainting = false;
+                paintedIndices.clear();
             });
 
             // 设置弹窗逻辑
@@ -529,10 +560,24 @@
 
                 // 鼠标事件绑定
                 card.addEventListener('mousedown', (e) => {
-                    lastSelectedIndex = index;
-                    selectStudent(index, e.ctrlKey || e.metaKey); // 🔒 关键修复：哪怕锁定了也优先允许被“选中”
-                    if (student.isLocked) return; // 但如果是锁定的，直接 return 拦截后面的拖拽逻辑
-                    startDrag(e, card);
+                    if (currentTool === 'select') {
+                        lastSelectedIndex = index;
+                        selectStudent(index, e.ctrlKey || e.metaKey);
+                        if (student.isLocked) return;
+                        startDrag(e, card);
+                    } else {
+                        // 画笔模式：点按即生效，并开启涂抹
+                        isPainting = true;
+                        paintedIndices.clear();
+                        applyToolAction(index);
+                    }
+                });
+
+                // 鼠标滑过事件（用于涂抹）
+                card.addEventListener('mouseenter', (e) => {
+                    if (isPainting && currentTool !== 'select') {
+                        applyToolAction(index);
+                    }
                 });
 
                 // 双击消除作业
@@ -661,58 +706,70 @@
             if (changed) hasUnsavedChanges = true; // 标记为未保存
         }
 
-        function handleSelectedScore(delta) {
-            if (selectedIndices.size === 0) return;
-            let changed = false;
-            selectedIndices.forEach(index => {
-                const student = studentsData[index];
-                if (student.isLocked) return; 
-
-                student.week_score += delta;
-                changed = true;
-                
-                const expEl = document.getElementById(`exp-text-${index}`);
-                if (expEl) {
-                    expEl.innerText = `${student.week_score}`;
-                }
-
-                const card = document.getElementById(`card-${index}`);
-                if (card) {
-                    showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, delta);
-                }
-            });
-            if (changed) hasUnsavedChanges = true; // 标记为未保存
+        function applyToolAction(index) {
+            if (paintedIndices.has(index)) return; // 避免重复操作
+            
+            const student = studentsData[index];
+            if (student.isLocked) return;
+            
+            paintedIndices.add(index);
+            
+            if (currentTool === 'plus10') {
+                updateSingleScore(index, 10);
+            } else if (currentTool === 'minus10') {
+                updateSingleScore(index, -10);
+            } else if (currentTool === 'consume100') {
+                consumeSingleGem(index, 100);
+            }
         }
 
-        function handleConsumeGem(amount) {
-            if (selectedIndices.size === 0) return;
-            let changed = false;
-            selectedIndices.forEach(index => {
-                const student = studentsData[index];
-                if (student.isLocked) return; 
+        function updateSingleScore(index, delta) {
+            const student = studentsData[index];
+            student.week_score += delta;
+            hasUnsavedChanges = true;
+            
+            const expEl = document.getElementById(`exp-text-${index}`);
+            if (expEl) {
+                expEl.innerText = `${student.week_score}`;
+            }
 
-                if (student.coins < amount) {
-                    const card = document.getElementById(`card-${index}`);
-                    if (card) {
-                        showFloatingText(card.offsetLeft + card.clientWidth / 2, card.offsetTop + card.clientHeight / 2, '余额不足', '#ef4444');
-                    }
-                    return;
-                }
+            const card = document.getElementById(`card-${index}`);
+            if (card) {
+                showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, delta);
+            }
+        }
 
-                student.coins -= amount;
-                changed = true;
-                
-                const gemEl = document.getElementById(`gem-text-${index}`);
-                if (gemEl) {
-                    gemEl.innerText = `🪙${student.coins}`;
-                }
-
+        function consumeSingleGem(index, amount) {
+            const student = studentsData[index];
+            if (student.coins < amount) {
                 const card = document.getElementById(`card-${index}`);
                 if (card) {
-                    showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, -amount, '#eab308');
+                    showFloatingText(card.offsetLeft + card.clientWidth / 2, card.offsetTop + card.clientHeight / 2, '余额不足', '#ef4444');
+                }
+                return;
+            }
+
+            student.coins -= amount;
+            hasUnsavedChanges = true;
+            
+            const gemEl = document.getElementById(`gem-text-${index}`);
+            if (gemEl) {
+                gemEl.innerText = `🪙${student.coins}`;
+            }
+
+            const card = document.getElementById(`card-${index}`);
+            if (card) {
+                showFloatingNum(card.offsetLeft + card.clientWidth - 25, card.offsetTop + card.clientHeight / 2, -amount, '#eab308');
+            }
+        }
+
+        function handleSelectedScore(delta) {
+            if (selectedIndices.size === 0) return;
+            selectedIndices.forEach(index => {
+                if (!studentsData[index].isLocked) {
+                    updateSingleScore(index, delta);
                 }
             });
-            if (changed) hasUnsavedChanges = true;
         }
 
         function handleAllScore(delta) {
