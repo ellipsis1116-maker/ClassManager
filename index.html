@@ -408,20 +408,12 @@
 
         function parseJSON(data) {
             if (!Array.isArray(data)) return;
-            data.forEach((item, index) => {
+            data.forEach(item => {
                 let student = { ...item };
                 student.week_score = parseInt(student.week_score) || 0;
                 student.total_score = parseInt(student.total_score) || 0;
                 student.coins = parseInt(student.coins) || 0;
                 student.isLocked = false; 
-                
-                // 如果没有行列数据，则根据初始索引分配
-                if (student.row === undefined || student.col === undefined) {
-                    const cols = parseInt(document.getElementById('cols-input').value) || 7;
-                    student.col = index % cols;
-                    student.row = Math.floor(index / cols);
-                }
-                
                 studentsData.push(student);
             });
         }
@@ -459,14 +451,54 @@
 
             hasUnsavedChanges = true; // 对齐操作会改变位置，标记为未保存
 
-            // 真正的对齐：无视当前乱序，直接按 1, 2, 3, 4 顺序从左到右、从上到下重新排列
-            studentsData.forEach((student, index) => {
+            // 记录每个格子已经被占用的情况
+            const occupiedCells = new Set();
+
+            // 按照卡片的 z-index 排序，z-index 小的（在下面的）优先占据目标格子，上面的卡片会被挤走
+            const sortedIndices = Array.from({ length: studentsData.length }, (_, i) => i).sort((a, b) => {
+                const cardA = document.getElementById(`card-${a}`);
+                const cardB = document.getElementById(`card-${b}`);
+                const zA = cardA ? parseInt(window.getComputedStyle(cardA).zIndex) || 0 : 0;
+                const zB = cardB ? parseInt(window.getComputedStyle(cardB).zIndex) || 0 : 0;
+                return zA - zB; // 升序，z-index 小的在前
+            });
+
+            sortedIndices.forEach(index => {
+                const student = studentsData[index];
                 const card = document.getElementById(`card-${index}`);
                 if (!card) return;
                 
-                let targetCol = index % cols;
-                let targetRow = Math.floor(index / cols);
+                const currentLeft = parseFloat(card.style.left);
+                const currentTop = parseFloat(card.style.top);
                 
+                let targetCol = Math.round((currentLeft - 24) / (cellWidth + 24));
+                let targetRow = Math.round((currentTop - 24) / (cellHeight + 24));
+                
+                targetCol = Math.max(0, Math.min(targetCol, cols - 1));
+                targetRow = Math.max(0, Math.min(targetRow, rows - 1));
+                
+                // 如果目标格子已经被占用，则寻找最近的空闲格子
+                if (occupiedCells.has(`${targetRow},${targetCol}`)) {
+                    let found = false;
+                    let radius = 1;
+                    while (!found && radius < Math.max(rows, cols)) {
+                        for (let r = Math.max(0, targetRow - radius); r <= Math.min(rows - 1, targetRow + radius); r++) {
+                            for (let c = Math.max(0, targetCol - radius); c <= Math.min(cols - 1, targetCol + radius); c++) {
+                                if (!occupiedCells.has(`${r},${c}`)) {
+                                    targetRow = r;
+                                    targetCol = c;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (found) break;
+                        }
+                        radius++;
+                    }
+                }
+
+                occupiedCells.add(`${targetRow},${targetCol}`);
+
                 const newLeft = (24 + targetCol * (cellWidth + 24)) + 'px';
                 const newTop = (24 + targetRow * (cellHeight + 24)) + 'px';
                 
@@ -480,8 +512,8 @@
                     card.style.transition = '';
                 }, 300);
 
-                student.col = targetCol;
-                student.row = targetRow;
+                student.left = newLeft;
+                student.top = newTop;
             });
         }
 
@@ -510,14 +542,12 @@
                 if (student.isLocked) card.classList.add('locked');
                 if (selectedIndices.has(index)) card.classList.add('selected');
 
-                // 使用行列计算绝对位置
-                const colIndex = student.col !== undefined ? student.col : (index % cols);
-                const rowIndex = student.row !== undefined ? student.row : Math.floor(index / cols);
-                
+                const colIndex = index % cols;
+                const rowIndex = Math.floor(index / cols);
                 const initLeft = 24 + colIndex * (cellWidth + 24);
                 const initTop = 24 + rowIndex * (cellHeight + 24);
-                card.style.left = initLeft + 'px';
-                card.style.top = initTop + 'px';
+                card.style.left = student.left || (initLeft + 'px');
+                card.style.top = student.top || (initTop + 'px');
 
                 let badgeHTML = '';
                 let lockHTML = student.isLocked ? `<div class="lock-icon">🔒</div>` : '';
@@ -912,39 +942,10 @@
             if (activeCard) {
                 const index = parseInt(activeCard.id.split('-')[1]);
                 if (!isNaN(index) && studentsData[index]) {
-                    const canvas = document.getElementById('canvas');
-                    const rows = parseInt(document.getElementById('rows-input').value) || 7;
-                    const cols = parseInt(document.getElementById('cols-input').value) || 7;
-                    
-                    let cellWidth = (canvas.clientWidth - 48 - (cols - 1) * 24) / cols;
-                    let cellHeight = (canvas.clientHeight - 48 - (rows - 1) * 24) / rows;
-
-                    const currentLeft = parseFloat(activeCard.style.left);
-                    const currentTop = parseFloat(activeCard.style.top);
-                    
-                    // 计算落入的行列
-                    let targetCol = Math.round((currentLeft - 24) / (cellWidth + 24));
-                    let targetRow = Math.round((currentTop - 24) / (cellHeight + 24));
-                    
-                    targetCol = Math.max(0, Math.min(targetCol, cols - 1));
-                    targetRow = Math.max(0, Math.min(targetRow, rows - 1));
-
-                    // 吸附到网格
-                    const newLeft = (24 + targetCol * (cellWidth + 24)) + 'px';
-                    const newTop = (24 + targetRow * (cellHeight + 24)) + 'px';
-                    
-                    activeCard.style.transition = 'left 0.2s ease, top 0.2s ease';
-                    activeCard.style.left = newLeft;
-                    activeCard.style.top = newTop;
-                    
-                    setTimeout(() => {
-                        if(activeCard) activeCard.style.transition = '';
-                    }, 200);
-
-                    // 只有行列真正改变了才标记为未保存
-                    if (studentsData[index].col !== targetCol || studentsData[index].row !== targetRow) {
-                        studentsData[index].col = targetCol;
-                        studentsData[index].row = targetRow;
+                    // 只有位置真正改变了才标记为未保存
+                    if (studentsData[index].left !== activeCard.style.left || studentsData[index].top !== activeCard.style.top) {
+                        studentsData[index].left = activeCard.style.left;
+                        studentsData[index].top = activeCard.style.top;
                         hasUnsavedChanges = true; // 标记为未保存
                     }
                 }
