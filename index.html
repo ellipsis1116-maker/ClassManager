@@ -96,6 +96,7 @@
         let currentTool = null; // 当前选中的画笔工具 (null 表示默认选择/拖拽模式)
         let isPainting = false; // 是否正在涂抹
         let paintedIndices = new Set(); // 记录一次涂抹中已经操作过的学生，避免重复加分
+        let lastCloudDataStr = ''; // 记录上一次从云端拉取的数据字符串
 
         // 快捷键配置 (默认值)
         let keyConfig = {
@@ -128,8 +129,8 @@
                     
                     // 检查数据是否有实质性变化，避免不必要的重绘
                     const newDataStr = JSON.stringify(data);
-                    const oldDataStr = JSON.stringify(studentsData);
-                    if (newDataStr !== oldDataStr) {
+                    if (newDataStr !== lastCloudDataStr) {
+                        lastCloudDataStr = newDataStr;
                         studentsData = [];
                         parseJSON(data);
                         
@@ -137,10 +138,8 @@
                         if (document.getElementById('cards-layer').children.length === 0) {
                             setupGrid();
                         } else {
-                            // 仅更新卡片内容，不重置位置
-                            const rows = parseInt(document.getElementById('rows-input').value) || 7;
-                            const cols = parseInt(document.getElementById('cols-input').value) || 7;
-                            renderCards(rows, cols);
+                            // 重新设置网格并渲染卡片，以应用可能改变的行列数
+                            setupGrid();
                         }
                     }
                 })
@@ -302,6 +301,7 @@
                             return response.json();
                         })
                         .then(data => {
+                            lastCloudDataStr = JSON.stringify(data);
                             studentsData = [];
                             selectedIndices.clear();
                             parseJSON(data);
@@ -407,8 +407,19 @@
         });
 
         function parseJSON(data) {
-            if (!Array.isArray(data)) return;
-            data.forEach(item => {
+            let studentsArray = data;
+            if (!Array.isArray(data)) {
+                if (data && data.students) {
+                    studentsArray = data.students;
+                    if (data.grid) {
+                        document.getElementById('rows-input').value = data.grid.rows || 7;
+                        document.getElementById('cols-input').value = data.grid.cols || 7;
+                    }
+                } else {
+                    return;
+                }
+            }
+            studentsArray.forEach(item => {
                 let student = { ...item };
                 student.week_score = parseInt(student.week_score) || 0;
                 student.total_score = parseInt(student.total_score) || 0;
@@ -468,8 +479,8 @@
                 const card = document.getElementById(`card-${index}`);
                 if (!card) return;
                 
-                const currentLeft = parseFloat(card.style.left);
-                const currentTop = parseFloat(card.style.top);
+                const currentLeft = card.offsetLeft;
+                const currentTop = card.offsetTop;
                 
                 let targetCol = Math.round((currentLeft - 24) / (cellWidth + 24));
                 let targetRow = Math.round((currentTop - 24) / (cellHeight + 24));
@@ -499,21 +510,24 @@
 
                 occupiedCells.add(`${targetRow},${targetCol}`);
 
-                const newLeft = (24 + targetCol * (cellWidth + 24)) + 'px';
-                const newTop = (24 + targetRow * (cellHeight + 24)) + 'px';
+                const newLeftPx = 24 + targetCol * (cellWidth + 24);
+                const newTopPx = 24 + targetRow * (cellHeight + 24);
+                
+                const leftPercent = (newLeftPx / canvas.clientWidth) * 100 + '%';
+                const topPercent = (newTopPx / canvas.clientHeight) * 100 + '%';
                 
                 // 添加过渡动画让吸附更平滑
                 card.style.transition = 'left 0.3s ease, top 0.3s ease';
-                card.style.left = newLeft;
-                card.style.top = newTop;
+                card.style.left = leftPercent;
+                card.style.top = topPercent;
                 
                 // 动画结束后移除 transition，以免影响后续的自由拖拽
                 setTimeout(() => {
                     card.style.transition = '';
                 }, 300);
 
-                student.left = newLeft;
-                student.top = newTop;
+                student.left = leftPercent;
+                student.top = topPercent;
             });
         }
 
@@ -544,10 +558,19 @@
 
                 const colIndex = index % cols;
                 const rowIndex = Math.floor(index / cols);
-                const initLeft = 24 + colIndex * (cellWidth + 24);
-                const initTop = 24 + rowIndex * (cellHeight + 24);
-                card.style.left = student.left || (initLeft + 'px');
-                card.style.top = student.top || (initTop + 'px');
+                const initLeftPx = 24 + colIndex * (cellWidth + 24);
+                const initTopPx = 24 + rowIndex * (cellHeight + 24);
+                
+                if (student.left && student.left.toString().endsWith('%')) {
+                    card.style.left = student.left;
+                    card.style.top = student.top;
+                } else {
+                    // Convert legacy px to % or use init
+                    const leftPx = student.left ? parseFloat(student.left) : initLeftPx;
+                    const topPx = student.top ? parseFloat(student.top) : initTopPx;
+                    card.style.left = (leftPx / canvas.clientWidth) * 100 + '%';
+                    card.style.top = (topPx / canvas.clientHeight) * 100 + '%';
+                }
 
                 let badgeHTML = '';
                 let lockHTML = student.isLocked ? `<div class="lock-icon">🔒</div>` : '';
@@ -698,18 +721,27 @@
                     return rest;
                 });
 
+                const payload = {
+                    grid: {
+                        rows: parseInt(document.getElementById('rows-input').value) || 7,
+                        cols: parseInt(document.getElementById('cols-input').value) || 7
+                    },
+                    students: dataToSave
+                };
+
                 const response = await fetch('/api/students', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(dataToSave)
+                    body: JSON.stringify(payload)
                 });
 
                 if (!response.ok) {
                     throw new Error('云端保存失败');
                 }
 
+                lastCloudDataStr = JSON.stringify(payload);
                 btn.innerText = '✅ 成功';
                 hasUnsavedChanges = false; // 保存成功，重置标记
                 setTimeout(() => btn.innerText = originalText, 2000);
@@ -942,10 +974,20 @@
             if (activeCard) {
                 const index = parseInt(activeCard.id.split('-')[1]);
                 if (!isNaN(index) && studentsData[index]) {
+                    const canvas = document.getElementById('canvas');
+                    const currentLeftPx = parseFloat(activeCard.style.left);
+                    const currentTopPx = parseFloat(activeCard.style.top);
+                    
+                    const leftPercent = (currentLeftPx / canvas.clientWidth) * 100 + '%';
+                    const topPercent = (currentTopPx / canvas.clientHeight) * 100 + '%';
+                    
+                    activeCard.style.left = leftPercent;
+                    activeCard.style.top = topPercent;
+
                     // 只有位置真正改变了才标记为未保存
-                    if (studentsData[index].left !== activeCard.style.left || studentsData[index].top !== activeCard.style.top) {
-                        studentsData[index].left = activeCard.style.left;
-                        studentsData[index].top = activeCard.style.top;
+                    if (studentsData[index].left !== leftPercent || studentsData[index].top !== topPercent) {
+                        studentsData[index].left = leftPercent;
+                        studentsData[index].top = topPercent;
                         hasUnsavedChanges = true; // 标记为未保存
                     }
                 }
