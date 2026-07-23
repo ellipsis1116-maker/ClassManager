@@ -8,7 +8,7 @@
 <body>
 
     <!-- 顶部控制台 -->
-    <div id="control-panel" style="justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 20px;">
+    <div id="control-panel" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 20px;">
         <!-- 左侧：设置与网格 -->
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
             <button id="settings-btn" class="btn" style="background: transparent; font-size: 20px; padding: 5px;" title="快捷键设置">⚙️</button>
@@ -19,18 +19,20 @@
         </div>
         
         <!-- 中间：画笔工具区 -->
-        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;" id="tools-container">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; flex: 1;" id="tools-container">
+            <button id="lock-btn" class="btn btn-lock">🔒 锁定</button>
+            <button id="all-up-btn" class="btn btn-blue" style="background:#10b981;">全班 +</button>
             <button class="btn tool-btn" data-tool="plus" style="background:#10b981; font-size: 20px; padding: 5px 20px; font-weight: bold;">+</button>
             <button class="btn tool-btn" data-tool="minus" style="background:#ef4444; font-size: 20px; padding: 5px 20px; font-weight: bold;">-</button>
+            <button id="all-down-btn" class="btn btn-blue" style="background:#ef4444;">全班 -</button>
             <button class="btn tool-btn" data-tool="consume" style="background:#eab308; color: #000; font-weight: bold;">兑奖</button>
         </div>
         
         <!-- 右侧：全局操作 -->
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <button id="all-up-btn" class="btn btn-blue" style="background:#10b981;">全班 +</button>
-            <button id="all-down-btn" class="btn btn-blue" style="background:#ef4444;">全班 -</button>
-            <button id="lock-btn" class="btn btn-lock">🔒 锁定</button>
             <button id="save-btn" class="btn" style="background:#10b981;">💾 保存</button>
+            <button id="top-reset-exp" class="btn" style="background: #ef4444;">结算</button>
+            <button id="top-reload-cloud" class="btn" style="background: transparent; font-size: 20px; padding: 5px;" title="重新加载">🔄</button>
         </div>
     </div>
 
@@ -57,7 +59,7 @@
                 <label><input type="checkbox" id="setting-space" checked> 空格锁定/解锁</label>
             </div>
             
-            <div style="margin-top: 16px; margin-bottom: 8px; font-size: 12px; color: #94a3b8;">自定键位</div>
+            <div style="margin-top: 16px; margin-bottom: 8px; font-size: 12px; color: #94a3b8;">自定键位 (默认支持 + 和 - 键)</div>
             <div class="setting-item">
                 <span>加分</span>
                 <input type="text" id="setting-key-up" value="Q" maxlength="1">
@@ -65,11 +67,6 @@
             <div class="setting-item">
                 <span>减分</span>
                 <input type="text" id="setting-key-down" value="A" maxlength="1">
-            </div>
-
-            <div style="margin-top: 20px; border-top: 1px solid #334155; padding-top: 16px; display: flex; gap: 10px;">
-                <button id="settings-reset-exp" class="btn" style="background: #ef4444; flex: 1;">周结算(存入总分)</button>
-                <button id="settings-reload-cloud" class="btn" style="background: #eab308; flex: 1;">从云端重新加载</button>
             </div>
 
             <div class="modal-actions">
@@ -268,7 +265,8 @@
                 modal.classList.remove('show');
             });
 
-            document.getElementById('settings-reset-exp').addEventListener('click', () => {
+            // 顶部结算按钮
+            document.getElementById('top-reset-exp').addEventListener('click', () => {
                 if (confirm('确定要进行周结算吗？这会将所有学生的本周分累加到历史总分和余额中，并将本周分清零。')) {
                     studentsData.forEach((student, index) => {
                         student.total_score += student.week_score;
@@ -281,15 +279,15 @@
                         }
                         const gemEl = document.getElementById(`gem-text-${index}`);
                         if (gemEl) {
-                            gemEl.innerText = `余额: ${student.coins}`;
+                            gemEl.innerText = `🪙${student.coins}`;
                         }
                     });
                     hasUnsavedChanges = true;
-                    modal.classList.remove('show');
                 }
             });
 
-            document.getElementById('settings-reload-cloud').addEventListener('click', () => {
+            // 顶部重新加载按钮
+            document.getElementById('top-reload-cloud').addEventListener('click', () => {
                 if (confirm('确定要从云端重新加载吗？未保存的更改将会丢失！')) {
                     fetch('/api/students')
                         .then(response => {
@@ -302,7 +300,6 @@
                             parseJSON(data);
                             setupGrid();
                             hasUnsavedChanges = false;
-                            modal.classList.remove('show');
                         })
                         .catch(err => {
                             alert('错误: ' + err.message);
@@ -394,9 +391,9 @@
                 } else if (keyConfig.useSpace && e.key === ' ') {
                     e.preventDefault();
                     toggleLock();
-                } else if (e.key.toLowerCase() === keyConfig.keyUp) {
+                } else if (e.key.toLowerCase() === keyConfig.keyUp || e.key === '+' || e.key === '=') {
                     handleSelectedScore(10);
-                } else if (e.key.toLowerCase() === keyConfig.keyDown) {
+                } else if (e.key.toLowerCase() === keyConfig.keyDown || e.key === '-' || e.key === '_') {
                     handleSelectedScore(-10);
                 }
             });
